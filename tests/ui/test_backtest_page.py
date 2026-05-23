@@ -51,6 +51,67 @@ class TestBacktestPageConstruction:
         assert page._end_date.calendarPopup() is True
 
 
+class TestTickersField:
+    def test_default_tickers(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        # 預設應有一組常見美股 ETF
+        tickers = page.tickers_value()
+        assert "SPY" in tickers
+
+    def test_set_tickers(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        page.set_tickers(["AAPL", "GOOG"])
+        assert page.tickers_value() == ["AAPL", "GOOG"]
+
+    def test_set_tickers_strips_whitespace(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        page.set_tickers_text("  SPY ,  QQQ  ,  ")
+        assert page.tickers_value() == ["SPY", "QQQ"]
+
+
+class TestRunButton:
+    def test_button_disabled_without_fetcher(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        assert page._run_button.isEnabled() is False
+
+    def test_button_enabled_with_fetcher(self, qtbot: QtBot) -> None:
+        page = BacktestPage(data_fetcher=lambda _syms, _s, _e: {})
+        qtbot.addWidget(page)
+        assert page._run_button.isEnabled() is True
+
+    def test_click_button_calls_fetcher(self, qtbot: QtBot) -> None:
+        from datetime import date
+
+        from stocks_trading.domain.market import Market
+        from stocks_trading.domain.symbol import Symbol
+
+        captured: dict[str, object] = {}
+
+        def fetcher(
+            symbols: list[Symbol], start: date, end: date
+        ) -> dict[Symbol, list[Bar]]:
+            captured["symbols"] = symbols
+            captured["start"] = start
+            captured["end"] = end
+            spy = Symbol("SPY", Market.US)
+            return {spy: _ramp(date(2026, 1, 1), [str(100 + i) for i in range(15)])}
+
+        page = BacktestPage(data_fetcher=fetcher)
+        qtbot.addWidget(page)
+        page.set_lookback_days(3)
+        page.set_top_n(1)
+        page.set_tickers(["SPY"])
+        page.run_with_fetcher()
+
+        assert "symbols" in captured
+        # 結果應該顯示了 metrics
+        assert page.result_summary_text() != ""
+
+
 class TestBacktestPageParams:
     def test_set_params_round_trip(self, qtbot: QtBot) -> None:
         page = BacktestPage()

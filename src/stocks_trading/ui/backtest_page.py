@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -31,6 +33,7 @@ from stocks_trading.backtest.portfolio_state import PortfolioState
 from stocks_trading.brokers.simulated_broker import SimulatedBroker
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.currency import Currency
+from stocks_trading.domain.market import Market
 from stocks_trading.domain.mode import Mode
 from stocks_trading.domain.money import Money
 from stocks_trading.domain.symbol import Symbol
@@ -39,11 +42,17 @@ from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.storage.signal_repository import SignalRepository
 from stocks_trading.strategies.dual_momentum import DualMomentumStrategy
 
+# 簽名：(symbols, start, end) → {symbol: bars[]}
+DataFetcher = Callable[[list[Symbol], date, date], dict[Symbol, list[Bar]]]
+
+_DEFAULT_TICKERS = "SPY, QQQ, IWM"
+
 
 class BacktestPage(QWidget):
-    def __init__(self) -> None:
+    def __init__(self, *, data_fetcher: DataFetcher | None = None) -> None:
         super().__init__()
         self.setObjectName("surface")
+        self._data_fetcher = data_fetcher
 
         self._lookback = QSpinBox()
         self._lookback.setRange(1, 1000)
@@ -67,8 +76,12 @@ class BacktestPage(QWidget):
         self._end_date.setCalendarPopup(True)
         self._end_date.setDisplayFormat("yyyy-MM-dd")
 
+        self._tickers_input = QLineEdit(_DEFAULT_TICKERS)
+
         self._summary_label = QLabel("")
         self._final_equity_label = QLabel("")
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("muted")
 
         self._build_ui()
 
@@ -91,6 +104,19 @@ class BacktestPage(QWidget):
     def set_initial_capital(self, v: float) -> None:
         self._initial_capital.setValue(v)
 
+    def tickers_value(self) -> list[str]:
+        return self._parse_tickers(self._tickers_input.text())
+
+    def set_tickers(self, tickers: list[str]) -> None:
+        self._tickers_input.setText(", ".join(tickers))
+
+    def set_tickers_text(self, text: str) -> None:
+        self._tickers_input.setText(text)
+
+    @staticmethod
+    def _parse_tickers(text: str) -> list[str]:
+        return [t.strip().upper() for t in text.split(",") if t.strip()]
+
     def result_summary_text(self) -> str:
         return self._summary_label.text()
 
@@ -98,6 +124,41 @@ class BacktestPage(QWidget):
         return self._final_equity_label.text()
 
     # ---- run ----
+    def run_with_fetcher(self) -> None:
+        """讀取表單參數 → 用注入的 data_fetcher 抓資料 → run_with_bars．"""
+        if self._data_fetcher is None:
+            self._status_label.setText("✗ 沒有資料源 (data_fetcher) 注入")
+            return
+
+        ticker_codes = self.tickers_value()
+        if not ticker_codes:
+            self._status_label.setText("✗ 請輸入至少一個 ticker")
+            return
+
+        symbols = [self._symbol_for_ticker(t) for t in ticker_codes]
+        start = self._qdate_to_date(self._start_date.date())
+        end = self._qdate_to_date(self._end_date.date())
+
+        self._status_label.setText("⏳ 抓取資料中...")
+        # 注意：同步抓取會短暫卡 UI；v1.5 改非同步
+        bars_by_symbol = self._data_fetcher(symbols, start, end)
+        self._status_label.setText("⏳ 跑回測中...")
+        self.run_with_bars(bars_by_symbol=bars_by_symbol, start=start, end=end)
+        self._status_label.setText(
+            f"✓ 完成 ({sum(len(b) for b in bars_by_symbol.values())} bars)"
+        )
+
+    @staticmethod
+    def _symbol_for_ticker(ticker: str) -> Symbol:
+        # 4 碼純數字 → 台股，否則美股
+        if ticker.isdigit() and len(ticker) == 4:
+            return Symbol(ticker, Market.TW)
+        return Symbol(ticker, Market.US)
+
+    @staticmethod
+    def _qdate_to_date(qd: QDate) -> date:
+        return date(qd.year(), qd.month(), qd.day())
+
     def run_with_bars(
         self,
         *,
@@ -174,15 +235,21 @@ class BacktestPage(QWidget):
         # left: params
         params_box = QGroupBox("回測參數")
         form = QFormLayout(params_box)
+        form.addRow(QLabel("標的 (CSV)"), self._tickers_input)
         form.addRow(QLabel("Lookback 天數"), self._lookback)
         form.addRow(QLabel("Top N"), self._top_n)
         form.addRow(QLabel("初始資金 (USD)"), self._initial_capital)
         form.addRow(QLabel("起始日期"), self._start_date)
         form.addRow(QLabel("結束日期"), self._end_date)
-        run_btn = QPushButton("▶ 執行回測")
-        run_btn.setEnabled(False)  # M3-S5 不直接抓資料，由上層接 (M3-S7)
-        run_btn.setToolTip("M3-S7 連接資料層後啟用")
-        form.addRow(run_btn)
+
+        self._run_button = QPushButton("▶ 執行回測")
+        if self._data_fetcher is None:
+            self._run_button.setEnabled(False)
+            self._run_button.setToolTip("尚未注入資料源 (data_fetcher)")
+        self._run_button.clicked.connect(self.run_with_fetcher)
+        form.addRow(self._run_button)
+
+        form.addRow(self._status_label)
 
         outer.addWidget(params_box, 0)
 
