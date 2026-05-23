@@ -17,6 +17,8 @@ dependencies = [
   "yfinance>=0.2.55",
   "pandas>=2.2",
   "PySide6>=6.7",
+  # Shioaji 永豐 API (台股行情，僅 Windows)
+  "shioaji>=1.2; platform_system == 'Windows'",
 ]
 
 [project.scripts]
