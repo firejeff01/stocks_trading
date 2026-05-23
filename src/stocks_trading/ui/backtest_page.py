@@ -12,17 +12,17 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QDateEdit,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -228,12 +228,17 @@ class BacktestPage(QWidget):
 
     # ---- UI ----
     def _build_ui(self) -> None:
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 20)
-        outer.setSpacing(16)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(8)
 
-        # left: params
+        # 用 Splitter 讓使用者可拖左右比例；小視窗時可手動分配
+        body = QSplitter(Qt.Orientation.Horizontal)
+
+        # left: params (固定較窄)
         params_box = QGroupBox("回測參數")
+        params_box.setMinimumWidth(280)
+        params_box.setMaximumWidth(420)
         form = QFormLayout(params_box)
         form.addRow(QLabel("標的 (CSV)"), self._tickers_input)
         form.addRow(QLabel("Lookback 天數"), self._lookback)
@@ -251,12 +256,18 @@ class BacktestPage(QWidget):
 
         form.addRow(self._status_label)
 
-        outer.addWidget(params_box, 0)
+        body.addWidget(params_box)
 
         # right: results
         results_box = QGroupBox("績效")
+        results_box.setMinimumWidth(280)
+        self._summary_label.setWordWrap(True)
         results_layout = QVBoxLayout(results_box)
         results_layout.addWidget(self._final_equity_label)
         results_layout.addWidget(self._summary_label)
         results_layout.addStretch(1)
-        outer.addWidget(results_box, 1)
+        body.addWidget(results_box)
+
+        body.setStretchFactor(0, 0)
+        body.setStretchFactor(1, 1)
+        outer.addWidget(body, 1)

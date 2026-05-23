@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("StocksTrading")
         self.resize(1280, 800)
+        self.setMinimumSize(1024, 680)
 
         self._build_ui()
         self._apply_theme()

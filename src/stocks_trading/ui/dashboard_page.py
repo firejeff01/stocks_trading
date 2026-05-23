@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -155,28 +155,50 @@ class DashboardPage(QWidget):
     # ---- UI build ----
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 20)
-        outer.setSpacing(16)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
 
-        # KPI row
+        # KPI row — 每張卡片設最小寬度避免被擠到不可讀，加上整列水平捲動
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(12)
-        for card in (self._kpi_equity, self._kpi_today, self._kpi_positions, self._kpi_win_rate):
+        for card in (
+            self._kpi_equity,
+            self._kpi_today,
+            self._kpi_positions,
+            self._kpi_win_rate,
+        ):
+            card.setMinimumWidth(150)
+            card.setMinimumHeight(70)
             kpi_row.addWidget(card)
         outer.addLayout(kpi_row)
 
         # Main grid: holdings + signals side by side
-        grid = QGridLayout()
-        grid.setSpacing(16)
+        # Splitter 讓使用者拖拉調整左右比例，視窗小時可手動分配
+        body = QSplitter(Qt.Orientation.Horizontal)
+
+        holdings_panel = QWidget()
+        holdings_panel.setMinimumWidth(280)
+        holdings_layout = QVBoxLayout(holdings_panel)
+        holdings_layout.setContentsMargins(0, 0, 0, 0)
+        holdings_layout.setSpacing(4)
         holdings_label = QLabel("持倉")
-        holdings_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        holdings_layout.addWidget(holdings_label)
+        holdings_layout.addWidget(self._holdings_table)
+        body.addWidget(holdings_panel)
+
+        signals_panel = QWidget()
+        signals_panel.setMinimumWidth(280)
+        signals_layout = QVBoxLayout(signals_panel)
+        signals_layout.setContentsMargins(0, 0, 0, 0)
+        signals_layout.setSpacing(4)
         signals_label = QLabel("今日訊號")
-        signals_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(holdings_label, 0, 0)
-        grid.addWidget(signals_label, 0, 1)
-        grid.addWidget(self._holdings_table, 1, 0)
-        grid.addWidget(self._signals_table, 1, 1)
-        outer.addLayout(grid, 1)
+        signals_layout.addWidget(signals_label)
+        signals_layout.addWidget(self._signals_table)
+        body.addWidget(signals_panel)
+
+        body.setStretchFactor(0, 1)
+        body.setStretchFactor(1, 1)
+        outer.addWidget(body, 1)
 
     @staticmethod
     def _fmt_money(m: Money, *, signed: bool = False) -> str:

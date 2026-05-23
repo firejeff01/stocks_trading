@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -204,13 +205,25 @@ class SettingsPage(QWidget):
 
     # ---- UI ----
     def _build_ui(self) -> None:
+        # 用 ScrollArea 包整個內容，視窗縮小時可捲動而非溢出
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 24, 24, 24)
-        outer.setSpacing(16)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        outer.addWidget(self._build_smtp_group())
-        outer.addWidget(self._build_shioaji_group())
-        outer.addWidget(self._build_risk_group())
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        outer.addWidget(scroll)
+
+        container = QWidget()
+        container.setObjectName("surface")
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(24, 24, 24, 24)
+        inner.setSpacing(16)
+
+        inner.addWidget(self._build_smtp_group())
+        inner.addWidget(self._build_shioaji_group())
+        inner.addWidget(self._build_risk_group())
 
         actions = QHBoxLayout()
         actions.addStretch(1)
@@ -221,13 +234,14 @@ class SettingsPage(QWidget):
         save_btn = QPushButton("儲存設定")
         save_btn.clicked.connect(self.save)
         actions.addWidget(save_btn)
-        outer.addLayout(actions)
+        inner.addLayout(actions)
 
         self._test_status_label = QLabel("")
         self._test_status_label.setObjectName("muted")
-        outer.addWidget(self._test_status_label)
+        inner.addWidget(self._test_status_label)
 
-        outer.addStretch(1)
+        inner.addStretch(1)
+        scroll.setWidget(container)
 
     def _build_smtp_group(self) -> QGroupBox:
         group = QGroupBox("Email 通知 (SMTP)")
