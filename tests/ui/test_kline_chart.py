@@ -127,6 +127,40 @@ class TestFloatingHoverTooltip:
         html = chart._hover_text.textItem.toHtml()
         assert "開" in html and "高" in html and "低" in html and "收" in html
 
+    def test_hover_text_rounds_prices_to_two_decimals(
+        self, qtbot: QtBot
+    ) -> None:
+        """yfinance float→Decimal 帶來的浮點噪音 (如 80.4000015258789) 必須四捨五入．"""
+        from PySide6.QtCore import QPointF
+
+        noisy_bar = Bar(
+            bar_date=date(2026, 5, 1),
+            open=Decimal("80.5999984741211"),
+            high=Decimal("81.5000076293945"),
+            low=Decimal("80.4000015258789"),
+            close=Decimal("80.5999984741211"),
+            volume=87_581_345,
+        )
+
+        chart = KLineChart()
+        qtbot.addWidget(chart)
+        chart.resize(800, 400)
+        chart.show()
+        qtbot.waitExposed(chart)
+        # 單一 bar → nearest_bar_index 必回 0
+        chart.update_bars([noisy_bar])
+
+        rect = chart._plot.sceneBoundingRect()
+        chart._on_mouse_moved(QPointF(rect.center().x(), rect.center().y()))
+
+        html = chart._hover_text.textItem.toHtml()
+        assert "80.4000015258789" not in html
+        assert "80.5999984741211" not in html
+        assert "80.40" in html
+        assert "80.60" in html
+        # diff 應該顯示成 +0.00 而不是 +0E-13 之類的科學記號
+        assert "0E" not in html
+
     def test_hover_text_hidden_when_mouse_outside_plot(
         self, qtbot: QtBot
     ) -> None:

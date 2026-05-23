@@ -167,15 +167,18 @@ class KLineChart(QWidget):
         self._plot.showGrid(x=True, y=True, alpha=0.25)
         self._plot.setMouseEnabled(x=True, y=True)
 
-        # MA legend (HUD)
+        # MA legend (HUD) — 固定窄寬避免擠掉左側 OHLC tooltip
         self._legend_label = QLabel("")
         self._legend_label.setObjectName("muted")
+        self._legend_label.setMaximumWidth(220)
         legend_font = self._legend_label.font()
         legend_font.setPointSize(12)
         self._legend_label.setFont(legend_font)
 
         # OHLC tooltip — 加大字 + 半透明背景方便視覺辨識
+        # wordWrap=True 讓窄視窗自動換行而非從一側被裁掉內容
         self._tooltip_label = QLabel("移動滑鼠到蠟燭上以顯示 OHLC")
+        self._tooltip_label.setWordWrap(True)
         font = self._tooltip_label.font()
         font.setFamily("Consolas")
         font.setPointSize(13)
@@ -270,6 +273,23 @@ class KLineChart(QWidget):
         self._hover_text.fill = pg.mkBrush(self._hover_fill_color())
         self._hover_text.border = pg.mkPen(self._theme.muted, width=0.8)
         self._redraw()
+
+    # ---- formatters ----
+    @staticmethod
+    def _fmt_price(d: Decimal) -> str:
+        """價格統一 2 位小數，吸收 yfinance float→Decimal 的浮點噪音．
+
+        例：Decimal('80.4000015258789') → '80.40'
+        """
+        return format(d, ".2f")
+
+    @staticmethod
+    def _fmt_signed(d: Decimal) -> str:
+        """漲跌差統一 2 位小數 + 顯式符號．
+
+        例：Decimal('0E-13') → '+0.00'、Decimal('-1.234') → '-1.23'
+        """
+        return format(d, "+.2f")
 
     # ---- internals ----
     def _hover_fill_color(self) -> QColor:
@@ -374,14 +394,19 @@ class KLineChart(QWidget):
 
         diff = bar.close - bar.open
         diff_pct = (diff / bar.open * Decimal(100)) if bar.open != 0 else Decimal(0)
-        sign = "+" if diff >= 0 else ""
         color = self._up_color if diff >= 0 else self._down_color
+        o_str = self._fmt_price(bar.open)
+        h_str = self._fmt_price(bar.high)
+        l_str = self._fmt_price(bar.low)
+        c_str = self._fmt_price(bar.close)
+        diff_str = self._fmt_signed(diff)
+        diff_pct_str = self._fmt_signed(diff_pct)
         header_html = (
             f"<b>{bar.bar_date}</b> &nbsp; "
-            f"O <b>{bar.open}</b> &nbsp; H <b>{bar.high}</b> &nbsp; "
-            f"L <b>{bar.low}</b> &nbsp; C <b>{bar.close}</b> &nbsp; "
+            f"O <b>{o_str}</b> &nbsp; H <b>{h_str}</b> &nbsp; "
+            f"L <b>{l_str}</b> &nbsp; C <b>{c_str}</b> &nbsp; "
             f"V <b>{bar.volume:,}</b> &nbsp; "
-            f'<span style="color:{color}">{sign}{diff} ({sign}{diff_pct:.2f}%)</span>'
+            f'<span style="color:{color}">{diff_str} ({diff_pct_str}%)</span>'
         )
         self._tooltip_label.setText(header_html)
 
@@ -390,12 +415,12 @@ class KLineChart(QWidget):
             f'<div style="font-family:Consolas;color:{self._theme.fg};'
             f'font-size:11pt;line-height:1.4">'
             f"<b>{bar.bar_date}</b><br>"
-            f"開 <b>{bar.open}</b><br>"
-            f"高 <b>{bar.high}</b><br>"
-            f"低 <b>{bar.low}</b><br>"
-            f"收 <b>{bar.close}</b><br>"
+            f"開 <b>{o_str}</b><br>"
+            f"高 <b>{h_str}</b><br>"
+            f"低 <b>{l_str}</b><br>"
+            f"收 <b>{c_str}</b><br>"
             f"量 <b>{bar.volume:,}</b><br>"
-            f'<span style="color:{color}">{sign}{diff} ({sign}{diff_pct:.2f}%)</span>'
+            f'<span style="color:{color}">{diff_str} ({diff_pct_str}%)</span>'
             f"</div>"
         )
         self._hover_text.setHtml(floating_html)
