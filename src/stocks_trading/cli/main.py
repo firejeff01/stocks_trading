@@ -16,6 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from stocks_trading import __version__
+from stocks_trading.cli.strategy_factory import AVAILABLE_STRATEGIES
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     daily.add_argument(
         "--top-n", type=int, default=2, help="選 top N 標的 (預設 2)"
+    )
+    daily.add_argument(
+        "--strategy",
+        choices=list(AVAILABLE_STRATEGIES),
+        default="dual-momentum",
+        help="策略名稱 (預設 dual-momentum)",
     )
     daily.add_argument(
         "--dry-run",
@@ -85,6 +92,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--top-n", type=int, default=2, help="選 top N 標的 (預設 2)"
     )
     bt.add_argument(
+        "--strategy",
+        choices=list(AVAILABLE_STRATEGIES),
+        default="dual-momentum",
+        help="策略名稱 (預設 dual-momentum)",
+    )
+    bt.add_argument(
         "--initial-capital",
         type=str,
         default="10000",
@@ -103,16 +116,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="輸出格式 (預設 text)",
     )
 
+    # ---- signal-list 子命令 ----
+    sl = sub.add_parser(
+        "signal-list",
+        help="列出最近 N 筆訊號 (預設 20)",
+    )
+    sl.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="最近 N 筆 (預設 20)",
+    )
+    sl.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="輸出格式 (預設 text)",
+    )
+
     return parser
 
 
 def _run_daily_routine(args: argparse.Namespace) -> int:
     """讀 config / 建依賴 / 呼叫 cli.daily_routine．返回 exit code．"""
     # 延遲 import 避免 --help / --version 路徑也要載入這些重模組
-    from decimal import Decimal
-
     from stocks_trading.app import _build_market_data_router, _default_appdata_dir
     from stocks_trading.cli.daily_routine import daily_routine
+    from stocks_trading.cli.strategy_factory import build_strategy
     from stocks_trading.config.store import ConfigStore
     from stocks_trading.domain.mode import Mode
     from stocks_trading.notify.notification_service import NotificationService
@@ -120,7 +150,6 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     from stocks_trading.storage import MIGRATIONS_DIR
     from stocks_trading.storage.migration import MigrationRunner
     from stocks_trading.storage.signal_repository import SignalRepository
-    from stocks_trading.strategies.dual_momentum import DualMomentumStrategy
 
     appdata = _default_appdata_dir()
     appdata.mkdir(parents=True, exist_ok=True)
@@ -134,10 +163,8 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     )
     router = _build_market_data_router(config)
     repo = SignalRepository(db_path=db_path)
-    strategy = DualMomentumStrategy(
-        lookback_days=args.lookback,
-        top_n=args.top_n,
-        abs_momentum_threshold=Decimal("0"),
+    strategy = build_strategy(
+        args.strategy, lookback_days=args.lookback, top_n=args.top_n
     )
     notify = (
         None
@@ -194,12 +221,39 @@ def _run_backtest(args: argparse.Namespace) -> int:
             initial_capital=Decimal(args.initial_capital),
             currency=Currency(args.currency),
             tmp_dir=Path(tmp),
+            strategy_name=args.strategy,
         )
 
     if args.output == "json":
         print(format_result_json(result))
     else:
         print(format_result_text(result))
+    return 0
+
+
+def _run_signal_list(args: argparse.Namespace) -> int:
+    """從正式 DB 讀最近 N 筆訊號，輸出 text 或 JSON．"""
+    from stocks_trading.app import _default_appdata_dir
+    from stocks_trading.cli.signal_list import (
+        format_signals_json,
+        format_signals_text,
+        list_recent_signals,
+    )
+    from stocks_trading.storage import MIGRATIONS_DIR
+    from stocks_trading.storage.migration import MigrationRunner
+    from stocks_trading.storage.signal_repository import SignalRepository
+
+    appdata = _default_appdata_dir()
+    appdata.mkdir(parents=True, exist_ok=True)
+    db_path = appdata / "app.db"
+    MigrationRunner(db_path=db_path, migrations_dir=MIGRATIONS_DIR).apply_pending()
+    repo = SignalRepository(db_path=db_path)
+
+    signals = list_recent_signals(repo, limit=args.limit)
+    if args.output == "json":
+        print(format_signals_json(signals))
+    else:
+        print(format_signals_text(signals))
     return 0
 
 
@@ -210,6 +264,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_daily_routine(args)
     if args.command == "backtest":
         return _run_backtest(args)
+    if args.command == "signal-list":
+        return _run_signal_list(args)
     parser.error(f"未知子命令：{args.command}")  # 永不返回 (SystemExit)
 
 

@@ -77,6 +77,16 @@ class SignalRepository:
             ).fetchall()
         return [self._row_to_signal(r) for r in rows]
 
+    def find_recent(self, *, limit: int) -> list[Signal]:
+        """最新 N 筆訊號 (generated_at 倒序)．"""
+        with sqlite3.connect(self._db_path) as conn:
+            rows = conn.execute(
+                self._select_columns()
+                + " ORDER BY generated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._row_to_signal(r) for r in rows]
+
     def update_status(
         self,
         signal_id: UUID,

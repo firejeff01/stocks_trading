@@ -62,6 +62,24 @@ class TestCliDailyRoutineDispatch:
         assert getattr(invoked["args"], "tickers", None) == ["SPY", "QQQ"]
 
 
+class TestCliSignalListDispatch:
+    def test_signal_list_subcommand_invokes_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invoked: dict[str, Any] = {}
+
+        def fake_handler(args: Any) -> int:
+            invoked["args"] = args
+            return 0
+
+        monkeypatch.setattr(cli_main, "_run_signal_list", fake_handler)
+        rc = cli_main.main(["signal-list", "--limit", "5", "--output", "json"])
+        assert rc == 0
+        args = invoked["args"]
+        assert getattr(args, "limit", None) == 5
+        assert getattr(args, "output", None) == "json"
+
+
 class TestCliBacktestDispatch:
     def test_backtest_subcommand_invokes_handler(
         self, monkeypatch: pytest.MonkeyPatch

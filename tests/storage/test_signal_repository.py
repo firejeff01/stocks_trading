@@ -143,6 +143,69 @@ class TestStatusFiltering:
         assert us_pending[0].symbol.code == "SPY"
 
 
+class TestFindRecent:
+    def test_returns_signals_in_reverse_time_order(
+        self, repo: SignalRepository
+    ) -> None:
+        # 寫 3 筆，generated_at 漸新
+        older = Signal(
+            account_id=SIM_US_ACCOUNT_ID,
+            strategy_name="DualMomentum",
+            symbol=Symbol("SPY", Market.US),
+            side=Side.BUY,
+            target_price=Money("100", Currency.USD),
+            stop_loss=Money("95", Currency.USD),
+            generated_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        )
+        mid = Signal(
+            account_id=SIM_US_ACCOUNT_ID,
+            strategy_name="DualMomentum",
+            symbol=Symbol("QQQ", Market.US),
+            side=Side.BUY,
+            target_price=Money("200", Currency.USD),
+            stop_loss=Money("190", Currency.USD),
+            generated_at=datetime(2026, 1, 2, 9, 0, tzinfo=UTC),
+        )
+        newer = Signal(
+            account_id=SIM_US_ACCOUNT_ID,
+            strategy_name="DualMomentum",
+            symbol=Symbol("IWM", Market.US),
+            side=Side.BUY,
+            target_price=Money("150", Currency.USD),
+            stop_loss=Money("140", Currency.USD),
+            generated_at=datetime(2026, 1, 3, 9, 0, tzinfo=UTC),
+        )
+        for s in (older, mid, newer):
+            repo.save(s, mode=Mode.SIM, suggested_qty=1)
+
+        recent = repo.find_recent(limit=10)
+        # 最新在前
+        assert [r.symbol.code for r in recent] == ["IWM", "QQQ", "SPY"]
+
+    def test_limit_caps_results(self, repo: SignalRepository) -> None:
+        # 寫 5 筆，limit=2 應只回最近 2 筆
+        for i in range(5):
+            sig = Signal(
+                account_id=SIM_US_ACCOUNT_ID,
+                strategy_name="DualMomentum",
+                symbol=Symbol("SPY", Market.US),
+                side=Side.BUY,
+                target_price=Money("100", Currency.USD),
+                stop_loss=Money("95", Currency.USD),
+                generated_at=datetime(2026, 1, i + 1, 9, 0, tzinfo=UTC),
+            )
+            repo.save(sig, mode=Mode.SIM, suggested_qty=1)
+
+        recent = repo.find_recent(limit=2)
+        assert len(recent) == 2
+        # 確認是最新的 2 筆 (Jan 5 + Jan 4)
+        dates = [r.generated_at.day for r in recent]
+        assert dates == [5, 4]
+
+    def test_empty_repo_returns_empty(self, repo: SignalRepository) -> None:
+        assert repo.find_recent(limit=10) == []
+
+
 class TestStatusUpdate:
     def test_update_status_persists(self, repo: SignalRepository) -> None:
         sig = _sample_signal()

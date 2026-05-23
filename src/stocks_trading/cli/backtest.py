@@ -20,6 +20,7 @@ from stocks_trading.backtest.backtest_engine import BacktestEngine, BacktestResu
 from stocks_trading.backtest.fill_engine import FillSettings
 from stocks_trading.backtest.portfolio_state import PortfolioState
 from stocks_trading.brokers.simulated_broker import SimulatedBroker
+from stocks_trading.cli.strategy_factory import build_strategy
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.market import Market
@@ -29,7 +30,6 @@ from stocks_trading.domain.symbol import Symbol
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.storage.signal_repository import SignalRepository
-from stocks_trading.strategies.dual_momentum import DualMomentumStrategy
 
 
 @runtime_checkable
@@ -57,6 +57,7 @@ def run_backtest(
     initial_capital: Decimal,
     currency: Currency,
     tmp_dir: Path,
+    strategy_name: str = "dual-momentum",
 ) -> BacktestResult:
     """跑單次回測．tmp_dir 用來建臨時 DB 隔離正式資料庫．"""
     # 1. 抓 bars
@@ -85,10 +86,8 @@ def run_backtest(
             commission_pct=Decimal("0"),
         ),
     )
-    strategy = DualMomentumStrategy(
-        lookback_days=lookback_days,
-        top_n=top_n,
-        abs_momentum_threshold=Decimal("0"),
+    strategy = build_strategy(
+        strategy_name, lookback_days=lookback_days, top_n=top_n
     )
     engine = BacktestEngine(
         broker=broker,
