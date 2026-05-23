@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 stocks-trading = "stocks_trading.app:main"
+stocks-trading-cli = "stocks_trading.cli.main:cli"
 
 [project.optional-dependencies]
 dev = [
