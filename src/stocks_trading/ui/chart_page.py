@@ -17,6 +17,7 @@ from datetime import date
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDateEdit,
     QHBoxLayout,
     QLabel,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stocks_trading.analytics.aggregator import Timeframe, aggregate_to_timeframe
 from stocks_trading.analytics.patterns import PatternDetector
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.market import Market
@@ -44,6 +46,24 @@ from stocks_trading.ui.widgets.subplots import MACDPlot, RSIPlot, VolumeBars
 
 ChartDataFetcher = Callable[[Symbol, date, date], list[Bar]]
 ProviderLabelFn = Callable[[], str]
+
+# 各週期對應的 bar 寬度 (秒) — 用於蠟燭/量柱繪製
+_BAR_SECONDS: dict[Timeframe, float] = {
+    Timeframe.DAILY: 86_400.0,
+    Timeframe.WEEKLY: 7 * 86_400.0,
+    Timeframe.MONTHLY: 30 * 86_400.0,
+    Timeframe.QUARTERLY: 91 * 86_400.0,
+    Timeframe.YEARLY: 365 * 86_400.0,
+}
+
+# QComboBox 顯示文字 → Timeframe
+_TIMEFRAME_OPTIONS: list[tuple[str, Timeframe]] = [
+    ("日 K", Timeframe.DAILY),
+    ("週 K", Timeframe.WEEKLY),
+    ("月 K", Timeframe.MONTHLY),
+    ("季 K", Timeframe.QUARTERLY),
+    ("年 K", Timeframe.YEARLY),
+]
 
 
 def _palette_for(theme_manager: ThemeManager | None) -> ChartTheme:
@@ -70,7 +90,8 @@ class ChartPage(QWidget):
         self._provider_label_fn = provider_label_fn
         self._theme_manager = theme_manager
         self._chart_theme = _palette_for(theme_manager)
-        self._bars: list[Bar] = []
+        self._bars: list[Bar] = []  # 永遠保存原始日 bars
+        self._current_timeframe: Timeframe = Timeframe.DAILY
         self._pattern_detector = PatternDetector()
 
         # 輸入欄
@@ -90,6 +111,13 @@ class ChartPage(QWidget):
             self._load_button.setEnabled(False)
             self._load_button.setToolTip("尚未注入 data_fetcher")
         self._load_button.clicked.connect(self.load_now)
+
+        # 週期下拉
+        self._timeframe_combo = QComboBox()
+        for label, _tf in _TIMEFRAME_OPTIONS:
+            self._timeframe_combo.addItem(label)
+        self._timeframe_combo.setCurrentIndex(0)  # 預設日 K
+        self._timeframe_combo.currentIndexChanged.connect(self._on_timeframe_changed)
 
         # 副圖 toggle
         self._chk_volume = QCheckBox("Volume")
@@ -140,6 +168,23 @@ class ChartPage(QWidget):
 
     def set_macd_visible(self, v: bool) -> None:
         self._chk_macd.setChecked(v)
+
+    def current_timeframe(self) -> Timeframe:
+        return self._current_timeframe
+
+    def set_timeframe(self, tf: Timeframe) -> None:
+        """測試用入口．切換週期並重繪．"""
+        for i, (_label, opt) in enumerate(_TIMEFRAME_OPTIONS):
+            if opt is tf:
+                self._timeframe_combo.setCurrentIndex(i)
+                return
+
+    def _on_timeframe_changed(self, idx: int) -> None:
+        if idx < 0 or idx >= len(_TIMEFRAME_OPTIONS):
+            return
+        self._current_timeframe = _TIMEFRAME_OPTIONS[idx][1]
+        # 用既有 bars 重繪即可，不用再抓資料
+        self._render(self._bars)
 
     def refresh_theme(self) -> None:
         """主題切換時呼叫；重套圖表顏色．"""
@@ -197,15 +242,28 @@ class ChartPage(QWidget):
         )
 
     def _render(self, bars: list[Bar]) -> None:
+        # 保留原始日 bars，方便切週期重繪
         self._bars = list(bars)
-        self._kline.update_bars(bars)
-        self._volume.update_bars(bars)
-        self._rsi.update_bars(bars)
-        self._macd.update_bars(bars)
-        # 形態提示列表
+
+        # 1) 依目前週期聚合 (日線就是原樣)
+        tf = self._current_timeframe
+        agg_bars = aggregate_to_timeframe(self._bars, tf)
+
+        # 2) 同步 bar 寬度 (秒) 給蠟燭 / 量柱 / MACD 柱
+        bar_seconds = _BAR_SECONDS[tf]
+        self._kline.set_bar_seconds(bar_seconds)
+        self._volume.set_bar_seconds(bar_seconds)
+        self._macd.set_bar_seconds(bar_seconds)
+
+        # 3) 餵聚合後的 bars
+        self._kline.update_bars(agg_bars)
+        self._volume.update_bars(agg_bars)
+        self._rsi.update_bars(agg_bars)
+        self._macd.update_bars(agg_bars)
+
+        # 4) 形態偵測仍用日線原始 bars (週/月 K 樣本太少且語意不同)
         self._patterns_list.clear()
-        events = self._pattern_detector.detect_all(bars)
-        # 僅顯示近 10 筆
+        events = self._pattern_detector.detect_all(self._bars)
         for ev in events[-10:]:
             self._patterns_list.addItem(
                 QListWidgetItem(
@@ -234,6 +292,9 @@ class ChartPage(QWidget):
         row1.addWidget(QLabel("迄"))
         row1.addWidget(self._end_date)
         row1.addWidget(self._load_button)
+        row1.addSpacing(12)
+        row1.addWidget(QLabel("週期"))
+        row1.addWidget(self._timeframe_combo)
         row1.addStretch(1)
         # 第一列同列加上副圖 toggle (省空間)
         row1.addWidget(QLabel("副圖："))

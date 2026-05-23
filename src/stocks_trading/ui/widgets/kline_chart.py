@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPicture
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPicture
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from stocks_trading.domain.bar import Bar
@@ -56,7 +56,7 @@ DARK_CHART_THEME = ChartTheme(
 
 
 class CandlestickItem(pg.GraphicsObject):  # type: ignore[misc,no-any-unimported]
-    """自繪蠟燭．x 為 unix timestamp (seconds)、寬度以一日秒數比例設定．"""
+    """自繪蠟燭．x 為 unix timestamp (seconds)、寬度由 bar_seconds 控制 (動態)．"""
 
     _ONE_DAY_SECONDS = 86400
 
@@ -66,18 +66,20 @@ class CandlestickItem(pg.GraphicsObject):  # type: ignore[misc,no-any-unimported
         *,
         up_color: str,
         down_color: str,
+        bar_seconds: float = 86400.0,  # 預設 1 日 (週/月/季/年由 ChartPage 傳)
     ) -> None:
         super().__init__()
         self._data = data
         self._up_color = QColor(up_color)
         self._down_color = QColor(down_color)
+        self._bar_seconds = bar_seconds
         self._picture = QPicture()
         self._generate_picture()
 
     def _generate_picture(self) -> None:
         painter = QPainter(self._picture)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        w = self._ONE_DAY_SECONDS * 0.35  # 蠟燭體一半寬度 (秒)
+        w = self._bar_seconds * 0.35  # 蠟燭體一半寬度，按週期動態調整
 
         for x, o, h, lo, c in self._data:
             color = self._up_color if c >= o else self._down_color
@@ -149,6 +151,7 @@ class KLineChart(QWidget):
         self._candle_item: CandlestickItem | None = None
         self._ma_visible: dict[int, bool] = {p: True for p in _DEFAULT_MA_PERIODS}
         self._theme = theme or LIGHT_CHART_THEME
+        self._bar_seconds: float = 86400.0  # 預設 daily；ChartPage 切週期會更新
 
         if market_red_up:
             self._up_color = "#dc2626"
@@ -167,16 +170,19 @@ class KLineChart(QWidget):
         # MA legend (HUD)
         self._legend_label = QLabel("")
         self._legend_label.setObjectName("muted")
+        legend_font = self._legend_label.font()
+        legend_font.setPointSize(12)
+        self._legend_label.setFont(legend_font)
 
         # OHLC tooltip — 加大字 + 半透明背景方便視覺辨識
         self._tooltip_label = QLabel("移動滑鼠到蠟燭上以顯示 OHLC")
         font = self._tooltip_label.font()
         font.setFamily("Consolas")
-        font.setPointSize(font.pointSize() + 1)
+        font.setPointSize(13)
         self._tooltip_label.setFont(font)
         self._tooltip_label.setStyleSheet(
-            f"color: {self._theme.fg}; background: rgba(127,127,127,0.08); "
-            f"padding: 4px 10px; border-radius: 6px;"
+            f"color: {self._theme.fg}; background: rgba(127,127,127,0.10); "
+            f"padding: 6px 12px; border-radius: 6px;"
         )
 
         # Crosshair
@@ -227,6 +233,18 @@ class KLineChart(QWidget):
     def down_color(self) -> str:
         return self._down_color
 
+    def set_bar_seconds(self, bar_seconds: float) -> None:
+        """設定每根 bar 的時長 (秒) — 用於 candle 寬度計算．
+
+        - 日線: 86400
+        - 週線: 604800
+        - 月線: ~2592000
+        - 季線: ~7776000
+        - 年線: ~31536000
+        """
+        self._bar_seconds = bar_seconds
+        self._redraw()
+
     def set_theme(self, theme: ChartTheme) -> None:
         self._theme = theme
         self._apply_theme_to_plot()
@@ -242,10 +260,13 @@ class KLineChart(QWidget):
     def _apply_theme_to_plot(self) -> None:
         self._plot.setBackground(self._theme.bg)
         axis_pen = pg.mkPen(self._theme.muted)
+        tick_font = QFont()
+        tick_font.setPointSize(11)
         for axis_name in ("bottom", "left"):
             axis = self._plot.getAxis(axis_name)
             axis.setPen(axis_pen)
             axis.setTextPen(self._theme.fg)
+            axis.setStyle(tickFont=tick_font)
 
     def _redraw(self) -> None:
         # 移除舊蠟燭與 MA 線；保留 crosshair (ignoreBounds)
@@ -256,6 +277,11 @@ class KLineChart(QWidget):
         if not self._bars:
             self._legend_label.setText("")
             return
+
+        # 換股票後重新置中：強制 auto-range 顯示完整資料
+        # (使用者一旦縮放/拖移，pyqtgraph 會自動關閉 auto-range；
+        #  載入新資料時要重新開啟一次)
+        self._plot.enableAutoRange()
 
         # Candle data: (timestamp, O, H, L, C)
         candle_data = [
@@ -269,7 +295,10 @@ class KLineChart(QWidget):
             for b, ts in zip(self._bars, self._bar_timestamps, strict=False)
         ]
         self._candle_item = CandlestickItem(
-            candle_data, up_color=self._up_color, down_color=self._down_color
+            candle_data,
+            up_color=self._up_color,
+            down_color=self._down_color,
+            bar_seconds=self._bar_seconds,
         )
         self._plot.addItem(self._candle_item)
 

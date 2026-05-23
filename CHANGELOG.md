@@ -2,6 +2,25 @@
 
 依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 與 SemVer．
 
+## [Unreleased]
+
+### 新增 (Added)
+- K 線圖週期切換：日／週／月／季／年 K
+  - `analytics.aggregator.aggregate_to_timeframe()` 純函式 + `Timeframe` enum
+  - ChartPage 工具列新增「週期」下拉，切換後即時重繪不重新抓資料
+  - 蠟燭 / 量柱 / MACD 柱寬隨週期自動放大 (週=7d、月=30d、季=91d、年=365d)
+  - 形態偵測仍以原始日線執行，避免聚合後樣本不足
+
+### 強化 (Enhanced)
+- 切換股票代號時 K 線圖自動置中：`KLineChart` 及 Volume/RSI/MACD 副圖
+  每次 `_redraw` 呼叫 `enableAutoRange()`，使新標的的可視範圍即時 fit
+- 軸刻度字體放大 (pointSize 11)、tooltip pointSize 13、legend pointSize 12
+  改善小視窗閱讀性
+
+### 統計
+- 482 tests 全綠 (+12 from v0.1.1)
+- ruff / mypy strict 全綠
+
 ## [0.1.1] — 2026-05-23 — UI 接資料層 + Shioaji 行情
 
 UI 真正接通 yfinance / Shioaji，回測頁可實際執行．

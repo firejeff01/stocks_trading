@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from pytestqt.qtbot import QtBot
 
+from stocks_trading.analytics.aggregator import Timeframe
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.market import Market
 from stocks_trading.domain.symbol import Symbol
@@ -108,3 +109,41 @@ class TestIndicatorToggle:
         qtbot.addWidget(page)
         page.set_rsi_visible(False)
         assert page.is_rsi_visible() is False
+
+
+class TestTimeframeSelector:
+    def test_default_is_daily(self, qtbot: QtBot) -> None:
+        page = ChartPage()
+        qtbot.addWidget(page)
+        assert page.current_timeframe() is Timeframe.DAILY
+
+    def test_set_timeframe_weekly_aggregates_existing_bars(
+        self, qtbot: QtBot
+    ) -> None:
+        # 30 個日 bar → 週 K 應該約 5 根 (跨 5 個 ISO 週)
+        page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(30))
+        qtbot.addWidget(page)
+        page.set_symbol_text("SPY")
+        page.load_now()
+        daily_count = page._kline.bar_count()
+        assert daily_count == 30
+
+        page.set_timeframe(Timeframe.WEEKLY)
+        weekly_count = page._kline.bar_count()
+        assert page.current_timeframe() is Timeframe.WEEKLY
+        # 週 K 應該嚴格小於日 K
+        assert weekly_count < daily_count
+        # 切回日 K 應該還原
+        page.set_timeframe(Timeframe.DAILY)
+        assert page._kline.bar_count() == 30
+
+    def test_set_timeframe_monthly(self, qtbot: QtBot) -> None:
+        # 60 個日 bar 跨 ~2-3 個月 → 月 K 約 2-3 根
+        page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(60))
+        qtbot.addWidget(page)
+        page.set_symbol_text("SPY")
+        page.load_now()
+        page.set_timeframe(Timeframe.MONTHLY)
+        assert page.current_timeframe() is Timeframe.MONTHLY
+        # 必有結果但比日 bar 少很多
+        assert 1 <= page._kline.bar_count() <= 5
