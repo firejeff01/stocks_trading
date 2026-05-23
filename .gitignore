@@ -50,6 +50,13 @@ secrets.json
 .env
 .env.local
 
+# API 金鑰 / 憑證 — 絕對不入庫
+pm/api_key/
+**/api_key.txt
+**/credentials.txt
+**/*.pfx
+**/*.p12
+
 # 打包產物
 *.msi
 *.exe
