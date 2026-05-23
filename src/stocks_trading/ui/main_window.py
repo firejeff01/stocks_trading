@@ -213,6 +213,11 @@ class MainWindow(QMainWindow):
             self.setProperty("theme", "dark")
         else:
             self.setProperty("theme", "light")
+        # 通知有實作 refresh_theme() 的頁面 (如 ChartPage)
+        for page in self._pages_override.values():
+            refresh = getattr(page, "refresh_theme", None)
+            if callable(refresh):
+                refresh()
 
     def _update_clock(self) -> None:
         from datetime import datetime

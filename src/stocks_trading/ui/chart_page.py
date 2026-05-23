@@ -33,11 +33,27 @@ from stocks_trading.analytics.patterns import PatternDetector
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.market import Market
 from stocks_trading.domain.symbol import Symbol
-from stocks_trading.ui.widgets.kline_chart import KLineChart
+from stocks_trading.ui.theme import ThemeManager, ThemeMode
+from stocks_trading.ui.widgets.kline_chart import (
+    DARK_CHART_THEME,
+    LIGHT_CHART_THEME,
+    ChartTheme,
+    KLineChart,
+)
 from stocks_trading.ui.widgets.subplots import MACDPlot, RSIPlot, VolumeBars
 
 ChartDataFetcher = Callable[[Symbol, date, date], list[Bar]]
 ProviderLabelFn = Callable[[], str]
+
+
+def _palette_for(theme_manager: ThemeManager | None) -> ChartTheme:
+    if theme_manager is None:
+        return LIGHT_CHART_THEME
+    return (
+        DARK_CHART_THEME
+        if theme_manager.current_mode is ThemeMode.DARK
+        else LIGHT_CHART_THEME
+    )
 
 
 class ChartPage(QWidget):
@@ -46,11 +62,14 @@ class ChartPage(QWidget):
         *,
         data_fetcher: ChartDataFetcher | None = None,
         provider_label_fn: ProviderLabelFn | None = None,
+        theme_manager: ThemeManager | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("surface")
         self._data_fetcher = data_fetcher
         self._provider_label_fn = provider_label_fn
+        self._theme_manager = theme_manager
+        self._chart_theme = _palette_for(theme_manager)
         self._bars: list[Bar] = []
         self._pattern_detector = PatternDetector()
 
@@ -80,11 +99,11 @@ class ChartPage(QWidget):
         self._chk_macd = QCheckBox("MACD")
         self._chk_macd.setChecked(True)
 
-        # 圖表元件
-        self._kline = KLineChart()
-        self._volume = VolumeBars()
-        self._rsi = RSIPlot()
-        self._macd = MACDPlot()
+        # 圖表元件 (傳入主題)
+        self._kline = KLineChart(theme=self._chart_theme)
+        self._volume = VolumeBars(theme=self._chart_theme)
+        self._rsi = RSIPlot(theme=self._chart_theme)
+        self._macd = MACDPlot(theme=self._chart_theme)
 
         self._patterns_list = QListWidget()
 
@@ -121,6 +140,14 @@ class ChartPage(QWidget):
 
     def set_macd_visible(self, v: bool) -> None:
         self._chk_macd.setChecked(v)
+
+    def refresh_theme(self) -> None:
+        """主題切換時呼叫；重套圖表顏色．"""
+        self._chart_theme = _palette_for(self._theme_manager)
+        self._kline.set_theme(self._chart_theme)
+        self._volume.set_theme(self._chart_theme)
+        self._rsi.set_theme(self._chart_theme)
+        self._macd.set_theme(self._chart_theme)
 
     def load_now(self) -> None:
         if self._data_fetcher is None:

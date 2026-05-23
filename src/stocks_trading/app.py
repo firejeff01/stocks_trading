@@ -108,6 +108,7 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
         PageId.CHART: ChartPage(
             data_fetcher=chart_fetcher,
             provider_label_fn=router.last_provider_used,
+            theme_manager=theme,
         ),
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),
