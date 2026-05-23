@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Protocol
+
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -21,11 +24,33 @@ from PySide6.QtWidgets import (
 from stocks_trading.config.store import ConfigStore
 
 
+class _NotificationServiceLike(Protocol):
+    def send_test_email(self) -> bool: ...
+
+
+# Builder callable type: 接 ConfigStore 回 NotificationService 或 None
+NotificationServiceBuilder = Callable[[ConfigStore], _NotificationServiceLike | None]
+
+
+def _default_notification_builder(config: ConfigStore) -> _NotificationServiceLike | None:
+    from stocks_trading.notify.notification_service import NotificationService
+
+    return NotificationService.from_config(config=config)
+
+
 class SettingsPage(QWidget):
-    def __init__(self, *, config: ConfigStore) -> None:
+    def __init__(
+        self,
+        *,
+        config: ConfigStore,
+        notification_service_builder: NotificationServiceBuilder | None = None,
+    ) -> None:
         super().__init__()
         self.setObjectName("surface")
         self._config = config
+        self._notification_builder = (
+            notification_service_builder or _default_notification_builder
+        )
 
         self._smtp_host = QLineEdit()
         self._smtp_port = QSpinBox()
@@ -88,6 +113,24 @@ class SettingsPage(QWidget):
     def set_total_exposure_pct(self, v: float) -> None:
         self._total_exposure_pct.setValue(v)
 
+    # ---- test email ----
+    def send_test_email(self) -> bool:
+        """先 save 當前表單，再呼叫 builder 取 NotificationService 寄測試信．"""
+        self.save()
+        service = self._notification_builder(self._config)
+        if service is None:
+            return False
+        return service.send_test_email()
+
+    def _on_test_email_clicked(self) -> None:
+        ok = self.send_test_email()
+        if ok:
+            self._test_status_label.setText("✓ 測試信已寄出，請檢查收件匣")
+        else:
+            self._test_status_label.setText(
+                "✗ 寄送失敗，請確認 SMTP host / 認證資訊"
+            )
+
     # ---- save ----
     def save(self) -> None:
         self._config.set_plain("smtp.host", self._smtp_host.text())
@@ -115,10 +158,18 @@ class SettingsPage(QWidget):
 
         actions = QHBoxLayout()
         actions.addStretch(1)
+        test_btn = QPushButton("寄送測試信")
+        test_btn.setObjectName("ghost")
+        test_btn.clicked.connect(self._on_test_email_clicked)
+        actions.addWidget(test_btn)
         save_btn = QPushButton("儲存設定")
         save_btn.clicked.connect(self.save)
         actions.addWidget(save_btn)
         outer.addLayout(actions)
+
+        self._test_status_label = QLabel("")
+        self._test_status_label.setObjectName("muted")
+        outer.addWidget(self._test_status_label)
 
         outer.addStretch(1)
 

@@ -3,7 +3,10 @@
 - 表單：SMTP / 風控 / 模擬參數
 - 載入 / 儲存皆走 ConfigStore
 - 密碼欄位走 secret 命名空間 (DPAPI 加密)
+- 寄送測試信按鈕 → NotificationService.send_test_email
 """
+
+from unittest.mock import MagicMock
 
 from pytestqt.qtbot import QtBot
 
@@ -85,3 +88,56 @@ class TestSave:
         page.save()
         # 明文設定不該出現密碼
         assert config.get_plain("smtp.password") is None
+
+
+class TestTestEmailButton:
+    def test_send_test_email_calls_service(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        # 注入假的 service builder
+        mock_service = MagicMock()
+        mock_service.send_test_email.return_value = True
+        builder_called: list[ConfigStore] = []
+
+        def fake_builder(cfg: ConfigStore):  # type: ignore[no-untyped-def]
+            builder_called.append(cfg)
+            return mock_service
+
+        page = SettingsPage(config=config, notification_service_builder=fake_builder)
+        qtbot.addWidget(page)
+        page.set_smtp_host("smtp.gmail.com")
+        page.set_smtp_user("me@gmail.com")
+        page.set_smtp_recipient("me@gmail.com")
+        page.set_smtp_password("pwd")
+
+        result = page.send_test_email()
+        assert result is True
+        assert len(builder_called) == 1
+        mock_service.send_test_email.assert_called_once()
+
+    def test_send_test_email_returns_false_when_no_service(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        # builder 回 None (SMTP 未配)
+        page = SettingsPage(
+            config=config,
+            notification_service_builder=lambda _cfg: None,
+        )
+        qtbot.addWidget(page)
+        assert page.send_test_email() is False
+
+    def test_test_button_saves_before_sending(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        # 點寄送測試信時應該先 save 一次，這樣 builder 才能讀到當前 form 值
+        mock_service = MagicMock()
+        mock_service.send_test_email.return_value = True
+        page = SettingsPage(
+            config=config,
+            notification_service_builder=lambda _cfg: mock_service,
+        )
+        qtbot.addWidget(page)
+        page.set_smtp_host("smtp.example.com")
+        page.send_test_email()
+        # 即使沒手動按 save，host 也該被持久化
+        assert config.get_plain("smtp.host") == "smtp.example.com"
