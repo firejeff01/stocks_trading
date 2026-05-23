@@ -1,12 +1,15 @@
 -- 0001_initial — 初始 schema (v1.0 一次預建 v2.0 空表，降低升級風險)
 -- 對應 SA data_design.md §1 全部 17 張表 + seed data
 -- 注意：schema_version 表由 MigrationRunner 自動建立，不在此檔內
+--
+-- 設計決策：accounts.id、signals.id 採 TEXT UUID 與 domain 對齊；
+-- 其他資料表 PK 仍用 INTEGER (append log 性質)．
 
 -- =========================================================================
 -- §1.2 accounts (雙帳本隔離根節點)
 -- =========================================================================
 CREATE TABLE accounts (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              TEXT    PRIMARY KEY,                -- UUID 字串
     name            TEXT    NOT NULL,
     mode            TEXT    NOT NULL CHECK (mode IN ('SIMULATION', 'LIVE')),
     broker          TEXT    NOT NULL,
@@ -23,7 +26,7 @@ CREATE TABLE accounts (
 -- =========================================================================
 CREATE TABLE positions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id      INTEGER NOT NULL REFERENCES accounts(id),
+    account_id      TEXT    NOT NULL REFERENCES accounts(id),
     symbol          TEXT    NOT NULL,
     market          TEXT    NOT NULL CHECK (market IN ('TW', 'US')),
     qty             INTEGER NOT NULL,
@@ -40,7 +43,7 @@ CREATE INDEX idx_positions_symbol  ON positions (symbol, market);
 -- §1.5 signals (注意：先於 orders，因 orders 有 FK 指向 signals)
 -- =========================================================================
 CREATE TABLE signals (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  TEXT    PRIMARY KEY,            -- UUID 字串
     strategy_id         TEXT    NOT NULL,
     symbol              TEXT    NOT NULL,
     market              TEXT    NOT NULL CHECK (market IN ('TW', 'US')),
@@ -63,7 +66,7 @@ CREATE TABLE signals (
                         )),
     filter_passed_json  TEXT,
     mode                TEXT    NOT NULL CHECK (mode IN ('SIMULATION','LIVE')),
-    account_id          INTEGER NOT NULL REFERENCES accounts(id),
+    account_id          TEXT    NOT NULL REFERENCES accounts(id),
     notified_at         TEXT
 );
 CREATE INDEX idx_signals_status        ON signals (status);
@@ -76,8 +79,8 @@ CREATE INDEX idx_signals_account       ON signals (account_id);
 -- =========================================================================
 CREATE TABLE orders (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id          INTEGER NOT NULL REFERENCES accounts(id),
-    signal_id           INTEGER REFERENCES signals(id),
+    account_id          TEXT    NOT NULL REFERENCES accounts(id),
+    signal_id           TEXT    REFERENCES signals(id),
     mode                TEXT    NOT NULL CHECK (mode IN ('SIMULATION', 'LIVE')),
     symbol              TEXT    NOT NULL,
     market              TEXT    NOT NULL CHECK (market IN ('TW', 'US')),
@@ -115,7 +118,7 @@ CREATE INDEX idx_orders_placed_at      ON orders (placed_at);
 -- =========================================================================
 CREATE TABLE daily_pnl (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id      INTEGER NOT NULL REFERENCES accounts(id),
+    account_id      TEXT    NOT NULL REFERENCES accounts(id),
     date            TEXT    NOT NULL,
     equity          TEXT    NOT NULL,
     cash            TEXT    NOT NULL,
@@ -247,7 +250,7 @@ CREATE INDEX idx_news_tickers_article ON news_tickers (article_id);
 -- =========================================================================
 CREATE TABLE watchlist (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id              INTEGER NOT NULL REFERENCES accounts(id),
+    account_id              TEXT    NOT NULL REFERENCES accounts(id),
     ticker                  TEXT    NOT NULL,
     market                  TEXT    NOT NULL CHECK (market IN ('TW','US')),
     side                    TEXT    NOT NULL CHECK (side IN ('BUY','SELL')),
@@ -255,7 +258,7 @@ CREATE TABLE watchlist (
     score                   REAL    NOT NULL,
     is_strong_signal        INTEGER NOT NULL DEFAULT 0,
     status                  TEXT    NOT NULL CHECK (status IN ('pending','promoted','dismissed','expired')),
-    promoted_signal_id      INTEGER REFERENCES signals(id),
+    promoted_signal_id      TEXT    REFERENCES signals(id),
     added_at                TEXT    NOT NULL,
     expires_at              TEXT    NOT NULL,
     closed_at               TEXT
@@ -316,14 +319,14 @@ CREATE TABLE chart_patterns_cache (
 );
 
 -- =========================================================================
--- SEED：accounts 雙帳本 × 雙幣別共 4 列
+-- SEED：accounts 雙帳本 × 雙幣別共 4 列 (UUID 與 seed_accounts.py 同步)
 -- LIVE 預設 is_frozen=1，待 v1.5 首次切到實盤時由使用者解凍並設定 init_capital
 -- =========================================================================
-INSERT INTO accounts (name, mode, broker, currency, init_capital, current_equity, is_frozen, created_at) VALUES
-    ('Default-SIM-TW',  'SIMULATION', 'simulated', 'TWD', '100000.00', '100000.00', 0, datetime('now')),
-    ('Default-SIM-US',  'SIMULATION', 'simulated', 'USD',   '3000.00',   '3000.00', 0, datetime('now')),
-    ('Default-LIVE-TW', 'LIVE',       'shioaji',   'TWD',       '0.00',       '0.00', 1, datetime('now')),
-    ('Default-LIVE-US', 'LIVE',       'email_us',  'USD',       '0.00',       '0.00', 1, datetime('now'));
+INSERT INTO accounts (id, name, mode, broker, currency, init_capital, current_equity, is_frozen, created_at) VALUES
+    ('11111111-0000-4000-8000-000000000001', 'Default-SIM-TW',  'SIMULATION', 'simulated', 'TWD', '100000.00', '100000.00', 0, datetime('now')),
+    ('11111111-0000-4000-8000-000000000002', 'Default-SIM-US',  'SIMULATION', 'simulated', 'USD',   '3000.00',   '3000.00', 0, datetime('now')),
+    ('11111111-0000-4000-8000-000000000003', 'Default-LIVE-TW', 'LIVE',       'shioaji',   'TWD',       '0.00',       '0.00', 1, datetime('now')),
+    ('11111111-0000-4000-8000-000000000004', 'Default-LIVE-US', 'LIVE',       'email_us',  'USD',       '0.00',       '0.00', 1, datetime('now'));
 
 -- =========================================================================
 -- SEED：source_credibility 八大來源預設信用度

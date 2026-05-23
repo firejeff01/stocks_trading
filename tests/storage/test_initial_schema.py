@@ -17,6 +17,12 @@ import pytest
 
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.migration import MigrationRunner
+from stocks_trading.storage.seed_accounts import (
+    LIVE_TW_ACCOUNT_ID,
+    LIVE_US_ACCOUNT_ID,
+    SIM_TW_ACCOUNT_ID,
+    SIM_US_ACCOUNT_ID,
+)
 
 EXPECTED_TABLES = {
     "schema_version",
@@ -104,69 +110,88 @@ class TestAccountSeedData:
 
     def test_account_uniqueness_mode_broker_currency(self, applied_db: Path) -> None:
         # 同 (mode, broker, currency) 組合不能重複（per SA UNIQUE 約束）
+        from uuid import uuid4
+
         with sqlite3.connect(applied_db) as conn, pytest.raises(sqlite3.IntegrityError):
-                conn.execute(
-                    "INSERT INTO accounts "
-                    "(name, mode, broker, currency, init_capital, current_equity, "
-                    " is_frozen, created_at) "
-                    "VALUES ('Dup', 'SIMULATION', 'simulated', 'TWD', '1', '1', 0, "
-                    "datetime('now'))"
-                )
+            conn.execute(
+                "INSERT INTO accounts "
+                "(id, name, mode, broker, currency, init_capital, current_equity, "
+                " is_frozen, created_at) "
+                "VALUES (?, 'Dup', 'SIMULATION', 'simulated', 'TWD', '1', '1', 0, "
+                "datetime('now'))",
+                (str(uuid4()),),
+            )
+
+    def test_seed_account_ids_match_constants(self, applied_db: Path) -> None:
+        # seed UUID 必須與 seed_accounts.py 常數完全對應
+        with sqlite3.connect(applied_db) as conn:
+            ids_by_name = dict(conn.execute("SELECT name, id FROM accounts"))
+        assert ids_by_name["Default-SIM-TW"] == str(SIM_TW_ACCOUNT_ID)
+        assert ids_by_name["Default-SIM-US"] == str(SIM_US_ACCOUNT_ID)
+        assert ids_by_name["Default-LIVE-TW"] == str(LIVE_TW_ACCOUNT_ID)
+        assert ids_by_name["Default-LIVE-US"] == str(LIVE_US_ACCOUNT_ID)
 
 
 class TestCheckConstraints:
     def test_account_mode_check(self, applied_db: Path) -> None:
+        from uuid import uuid4
+
         with (
             sqlite3.connect(applied_db) as conn,
             pytest.raises(sqlite3.IntegrityError, match=r"(CHECK|check)"),
         ):
-                conn.execute(
-                    "INSERT INTO accounts "
-                    "(name, mode, broker, currency, init_capital, current_equity, "
-                    " is_frozen, created_at) "
-                    "VALUES ('X', 'PAPER', 'simulated', 'TWD', '1', '1', 0, "
-                    "datetime('now'))"
-                )
+            conn.execute(
+                "INSERT INTO accounts "
+                "(id, name, mode, broker, currency, init_capital, current_equity, "
+                " is_frozen, created_at) "
+                "VALUES (?, 'X', 'PAPER', 'simulated', 'TWD', '1', '1', 0, "
+                "datetime('now'))",
+                (str(uuid4()),),
+            )
 
     def test_signal_status_check(self, applied_db: Path) -> None:
         # 必須使用合法的 9 個狀態之一
+        from uuid import uuid4
+
         with (
             sqlite3.connect(applied_db) as conn,
             pytest.raises(sqlite3.IntegrityError, match=r"(CHECK|check)"),
         ):
-                conn.execute(
-                    "INSERT INTO signals "
-                    "(strategy_id, symbol, market, side, target_price, suggested_qty, "
-                    " reason, generated_at, status, mode, account_id) "
-                    "VALUES ('s', 'SPY', 'US', 'BUY', '100', 1, 'r', "
-                    " datetime('now'), 'BOGUS_STATUS', 'SIMULATION', 1)"
-                )
+            conn.execute(
+                "INSERT INTO signals "
+                "(id, strategy_id, symbol, market, side, target_price, suggested_qty, "
+                " reason, generated_at, status, mode, account_id) "
+                "VALUES (?, 's', 'SPY', 'US', 'BUY', '100', 1, 'r', "
+                " datetime('now'), 'BOGUS_STATUS', 'SIMULATION', ?)",
+                (str(uuid4()), str(SIM_TW_ACCOUNT_ID)),
+            )
 
     def test_orders_status_check(self, applied_db: Path) -> None:
         with (
             sqlite3.connect(applied_db) as conn,
             pytest.raises(sqlite3.IntegrityError, match=r"(CHECK|check)"),
         ):
-                conn.execute(
-                    "INSERT INTO orders "
-                    "(account_id, mode, symbol, market, side, order_type, qty, "
-                    " status, placed_at) "
-                    "VALUES (1, 'SIMULATION', 'SPY', 'US', 'BUY', 'LIMIT', 1, "
-                    "'INVALID', datetime('now'))"
-                )
+            conn.execute(
+                "INSERT INTO orders "
+                "(account_id, mode, symbol, market, side, order_type, qty, "
+                " status, placed_at) "
+                "VALUES (?, 'SIMULATION', 'SPY', 'US', 'BUY', 'LIMIT', 1, "
+                "'INVALID', datetime('now'))",
+                (str(SIM_TW_ACCOUNT_ID),),
+            )
 
     def test_kbars_source_check(self, applied_db: Path) -> None:
         with (
             sqlite3.connect(applied_db) as conn,
             pytest.raises(sqlite3.IntegrityError, match=r"(CHECK|check)"),
         ):
-                conn.execute(
-                    "INSERT INTO kbars_cache "
-                    "(symbol, market, date, open, high, low, close, volume, "
-                    " source, fetched_at) "
-                    "VALUES ('SPY', 'US', '2026-05-23', '1','1','1','1', 1, "
-                    "'bloomberg', datetime('now'))"
-                )
+            conn.execute(
+                "INSERT INTO kbars_cache "
+                "(symbol, market, date, open, high, low, close, volume, "
+                " source, fetched_at) "
+                "VALUES ('SPY', 'US', '2026-05-23', '1','1','1','1', 1, "
+                "'bloomberg', datetime('now'))"
+            )
 
 
 class TestSourceCredibilitySeed:
