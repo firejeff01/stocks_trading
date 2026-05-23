@@ -72,3 +72,40 @@ class TestSignalLogPage:
         page.set_status_filter(SignalStatus.FILLED)
         page.set_status_filter(None)  # 全部
         assert page.row_count() == 2
+
+
+class TestSignalLogPageDataLoader:
+    """SignalLogPage 注入式 loader — 開啟時自動載資料 + 重新整理按鈕重抓．"""
+
+    def test_loader_called_on_init(self, qtbot: QtBot) -> None:
+        calls: list[int] = []
+
+        def loader() -> list[Signal]:
+            calls.append(1)
+            return [_sig(SignalStatus.FILLED)]
+
+        page = SignalLogPage(signal_loader=loader)
+        qtbot.addWidget(page)
+        assert calls == [1]
+        # 載入後表格有 1 筆
+        assert page.row_count() == 1
+
+    def test_refresh_button_invokes_loader_again(self, qtbot: QtBot) -> None:
+        call_count = [0]
+
+        def loader() -> list[Signal]:
+            call_count[0] += 1
+            return [_sig(SignalStatus.FILLED)] * call_count[0]
+
+        page = SignalLogPage(signal_loader=loader)
+        qtbot.addWidget(page)
+        assert call_count[0] == 1
+        page._refresh_button.click()
+        assert call_count[0] == 2
+        # 第二次 loader 回 2 筆
+        assert page.row_count() == 2
+
+    def test_no_loader_button_disabled(self, qtbot: QtBot) -> None:
+        page = SignalLogPage()
+        qtbot.addWidget(page)
+        assert page._refresh_button.isEnabled() is False

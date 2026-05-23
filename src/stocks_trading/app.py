@@ -33,6 +33,7 @@ from stocks_trading.storage.account_repository import AccountRepository
 from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
 from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.storage.positions_repository import PositionsRepository
+from stocks_trading.storage.signal_repository import SignalRepository
 from stocks_trading.ui.backtest_page import BacktestPage
 from stocks_trading.ui.chart_page import ChartPage
 from stocks_trading.ui.dashboard_page import DashboardPage
@@ -134,7 +135,11 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
         ),
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),
-        PageId.SIGNAL_LOG: SignalLogPage(),
+        PageId.SIGNAL_LOG: SignalLogPage(
+            signal_loader=lambda: SignalRepository(
+                db_path=db_path
+            ).find_recent(limit=100),
+        ),
         PageId.SETTINGS: SettingsPage(
             config=config,
             account_repo=account_repo,
