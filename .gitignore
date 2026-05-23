@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# Type checker / Linter cache
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Project-specific
+# 本地資料庫與 log 不入庫（v1.0 起會放在 %LOCALAPPDATA% 但 dev 環境可能在 ./data/）
+data/
+logs/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+
+# 加密的設定檔
+secrets.dat
+secrets.json
+.env
+.env.local
+
+# 打包產物
+*.msi
+*.exe
+output/
+release/
+
+# Claude Code 工作目錄（如果有）
+.claude/

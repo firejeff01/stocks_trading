@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>自動化股票交易系統 — 需求文件 v0.3</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1e2329;
+    --muted: #6b7280;
+    --primary: #2563eb;
+    --primary-soft: #eff4ff;
+    --sim: #16a34a;
+    --sim-soft: #ecfdf5;
+    --live: #dc2626;
+    --live-soft: #fef2f2;
+    --warn: #f59e0b;
+    --code-bg: #f4f5f7;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.08);
+    --candle-up: #16a34a;
+    --candle-down: #dc2626;
+    --chart-grid: #e8eaee;
+    --ma5: #f59e0b;
+    --ma20: #3b82f6;
+    --ma60: #a855f7;
+  }
+  [data-theme="dark"] {
+    --bg: #0f1115;
+    --surface: #181b22;
+    --border: #2a2f3a;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --primary: #60a5fa;
+    --primary-soft: #1e293b;
+    --sim: #22c55e;
+    --sim-soft: #14271c;
+    --live: #ef4444;
+    --live-soft: #2a1414;
+    --warn: #fbbf24;
+    --code-bg: #1f232b;
+    --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.5);
+    --candle-up: #22c55e;
+    --candle-down: #ef4444;
+    --chart-grid: #2a2f3a;
+    --ma5: #fbbf24;
+    --ma20: #60a5fa;
+    --ma60: #c084fc;
+  }
+  /* Theme toggle button */
+  .theme-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 1000;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    box-shadow: var(--shadow);
+    transition: transform 0.15s, background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .theme-toggle:hover { transform: translateY(-1px); }
+  .theme-toggle .sun, .theme-toggle .moon { font-size: 14px; }
+  [data-theme="dark"] .theme-toggle .sun { opacity: 0.4; }
+  :root .theme-toggle .moon { opacity: 0.4; }
+  [data-theme="dark"] .theme-toggle .moon { opacity: 1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15px;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  /* ===== K-line chart mockup ===== */
+  .kline-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 8px; }
+  .kline-area { position: relative; height: 220px; padding: 8px 50px 8px 40px; }
+  .kline-grid { position: absolute; inset: 8px 50px 8px 40px; pointer-events: none; }
+  .kline-grid .gline { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--chart-grid); }
+  .kline-yaxis { position: absolute; right: 4px; top: 8px; bottom: 8px; width: 44px; font-size: 10px; color: var(--muted); font-family: monospace; }
+  .kline-yaxis span { position: absolute; right: 0; transform: translateY(-50%); }
+  .candles { display: flex; gap: 3px; height: 100%; align-items: stretch; position: relative; }
+  .candle { flex: 1; position: relative; }
+  .candle .wick {
+    position: absolute;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+    background: currentColor;
+  }
+  .candle .body {
+    position: absolute;
+    left: 10%; right: 10%;
+    background: currentColor;
+    border-radius: 1px;
+  }
+  .candle.up { color: var(--candle-up); }
+  .candle.down { color: var(--candle-down); }
+  .ma-overlay { position: absolute; inset: 8px 50px 8px 40px; pointer-events: none; }
+  .ma-overlay path { fill: none; stroke-width: 1.4; }
+  .ma-overlay .ma5 { stroke: var(--ma5); }
+  .ma-overlay .ma20 { stroke: var(--ma20); }
+  .ma-overlay .ma60 { stroke: var(--ma60); }
+  .pattern-marker {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+    white-space: nowrap;
+  }
+  .pattern-marker.gold { background: var(--candle-up); }
+  .pattern-marker.death { background: var(--candle-down); }
+  .pattern-marker.volume { background: var(--warn); color: #1e2329; }
+  .vol-area { display: flex; gap: 3px; height: 50px; align-items: flex-end; padding: 4px 50px 0 40px; border-top: 1px solid var(--border); margin-top: 4px; position: relative; }
+  .vol-bar { flex: 1; background: var(--muted); opacity: 0.4; border-radius: 1px 1px 0 0; }
+  .vol-bar.up { background: var(--candle-up); opacity: 0.6; }
+  .vol-bar.down { background: var(--candle-down); opacity: 0.6; }
+  .vol-bar.hot { opacity: 1; }
+  .ma-legend { display: flex; gap: 14px; margin-bottom: 6px; font-size: 11px; color: var(--muted); }
+  .ma-legend .dot { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 4px; }
+  .indicator-bar { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+  .indicator-chip { padding: 4px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; font-size: 12px; cursor: pointer; }
+  .indicator-chip.active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .timeframe-tabs { display: inline-flex; background: var(--code-bg); border-radius: 6px; padding: 2px; }
+  .timeframe-tabs .tf { padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; }
+  .timeframe-tabs .tf.active { background: var(--surface); box-shadow: var(--shadow); font-weight: 600; }
+
+  /* Sparkline mini chart */
+  .sparkline { display: inline-flex; gap: 1px; height: 18px; align-items: flex-end; vertical-align: middle; }
+  .sparkline .sl { width: 2px; background: var(--candle-up); border-radius: 1px; opacity: 0.85; }
+  .sparkline .sl.dn { background: var(--candle-down); }
+
+  /* News page styles */
+  .news-feed { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; }
+  .news-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer; transition: border-color 0.15s; }
+  .news-card:hover { border-color: var(--primary); }
+  .news-card .nc-header { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .news-card .nc-title { font-weight: 600; font-size: 14px; margin: 2px 0 6px; color: var(--text); line-height: 1.4; }
+  .news-card .nc-summary { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .news-card .nc-meta { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; font-size: 11px; }
+  .nc-strong { border-left: 3px solid var(--sim); }
+  .nc-strong-bear { border-left: 3px solid var(--live); }
+  .impact-bar { display: inline-block; width: 60px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; vertical-align: middle; }
+  .impact-bar .fill { height: 100%; background: var(--primary); }
+  .watch-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .watch-card.strong { border-left: 4px solid var(--sim); }
+  .watch-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .btn-mini { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; color: var(--text); }
+  .btn-mini.primary { background: var(--primary); color: white; border-color: var(--primary); }
+  .btn-mini.danger { background: var(--live); color: white; border-color: var(--live); }
+  .cost-meter { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .cost-meter .bar { background: var(--border); height: 8px; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .cost-meter .fill { background: linear-gradient(90deg, var(--sim), var(--warn) 70%, var(--live) 95%); height: 100%; }
+  .layout { display: flex; max-width: 1280px; margin: 0 auto; }
+  /* TOC */
+  nav.toc {
+    width: 260px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 24px 16px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  nav.toc h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 16px 0 8px;
+  }
+  nav.toc ul { list-style: none; padding: 0; margin: 0; }
+  nav.toc li { margin: 4px 0; }
+  nav.toc a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13.5px;
+    display: block;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  nav.toc a:hover { background: var(--primary-soft); color: var(--primary); }
+  /* Main */
+  main { flex: 1; padding: 40px 56px 80px; max-width: 980px; }
+  h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h3 { font-size: 17px; margin: 28px 0 12px; color: var(--text); }
+  h4 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  p { margin: 8px 0 14px; }
+  a { color: var(--primary); }
+  code { font-family: "JetBrains Mono", "Consolas", "Courier New", monospace; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 14px; background: var(--surface); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); }
+  thead { background: var(--primary-soft); }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { font-weight: 600; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  .meta-card { background: var(--surface); padding: 20px 24px; border-left: 4px solid var(--primary); border-radius: 4px; box-shadow: var(--shadow); margin-bottom: 32px; }
+  .meta-card table { box-shadow: none; }
+  .meta-card td { border-bottom: 1px solid #f0f1f3; padding: 6px 0; }
+  .meta-card td:first-child { width: 30%; color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; vertical-align: middle; }
+  .badge.p0 { background: #fee2e2; color: #991b1b; }
+  .badge.p1 { background: #fef3c7; color: #92400e; }
+  .badge.p2 { background: #e0e7ff; color: #3730a3; }
+  .badge.sim { background: var(--sim-soft); color: var(--sim); }
+  .badge.live { background: var(--live-soft); color: var(--live); }
+  .callout { padding: 14px 18px; border-radius: 8px; margin: 16px 0; }
+  .callout.info { background: var(--primary-soft); border-left: 4px solid var(--primary); }
+  .callout.warn { background: #fffbeb; border-left: 4px solid var(--warn); }
+  .callout.danger { background: var(--live-soft); border-left: 4px solid var(--live); }
+
+  /* ===== Mockup ===== */
+  .mockup-section { margin: 28px 0 36px; }
+  .mockup-frame {
+    background: #f8f9fb;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    margin: 18px 0;
+  }
+  .mockup-titlebar {
+    background: linear-gradient(180deg, #f1f2f5, #e6e8ec);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .mockup-titlebar .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .mockup-titlebar .dot.red { background: #ff5f57; }
+  .mockup-titlebar .dot.yellow { background: #febc2e; }
+  .mockup-titlebar .dot.green { background: #28c840; }
+  .mockup-titlebar .title { margin-left: 12px; font-weight: 500; color: #4b5563; }
+
+  .app-topbar {
+    background: var(--surface);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mode-toggle {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 2px solid transparent;
+  }
+  .mode-toggle.sim { background: var(--sim-soft); color: var(--sim); border-color: var(--sim); }
+  .mode-toggle.live { background: var(--live-soft); color: var(--live); border-color: var(--live); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+  .mode-toggle::before { content: "●"; }
+  .topbar-status { color: var(--muted); font-size: 12px; }
+  .topbar-status strong { color: var(--text); font-weight: 600; margin: 0 4px; }
+  .topbar-right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  .icon-btn { background: var(--code-bg); border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+
+  .app-body { display: flex; min-height: 480px; }
+  .app-sidebar { width: 160px; background: #f7f8fa; border-right: 1px solid var(--border); padding: 12px 0; }
+  .app-sidebar .nav-item { padding: 10px 18px; font-size: 13.5px; color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  .app-sidebar .nav-item:hover { background: var(--primary-soft); }
+  .app-sidebar .nav-item.active { background: var(--primary-soft); color: var(--primary); border-right: 3px solid var(--primary); font-weight: 600; }
+  .nav-icon { width: 18px; text-align: center; opacity: 0.7; }
+  .app-content { flex: 1; padding: 20px 24px; background: var(--bg); overflow-x: auto; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .kpi-card { background: var(--surface); padding: 14px; border-radius: 8px; border: 1px solid var(--border); }
+  .kpi-card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .kpi-card .value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .kpi-card .delta { font-size: 12px; margin-top: 4px; }
+  .delta.up { color: var(--sim); }
+  .delta.down { color: var(--live); }
+
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 18px 0 8px; }
+  .mockup-table { width: 100%; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); font-size: 13px; border-collapse: collapse; box-shadow: none; }
+  .mockup-table th, .mockup-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .mockup-table th { background: #f7f8fa; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .mockup-table tr:last-child td { border-bottom: none; }
+  .pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .pill.buy { background: var(--sim-soft); color: var(--sim); }
+  .pill.sell { background: var(--live-soft); color: var(--live); }
+  .pill.hold { background: #f3f4f6; color: var(--muted); }
+  .pill.us { background: #eff6ff; color: var(--primary); }
+  .pill.tw { background: #fef3c7; color: #92400e; }
+
+  .signal-row { background: #fffbeb; }
+
+  /* Form */
+  .form-row { display: grid; grid-template-columns: 180px 1fr; gap: 16px; align-items: center; margin: 10px 0; }
+  .form-row label { font-size: 13px; color: var(--muted); }
+  .form-row input, .form-row select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: var(--surface); width: 100%; max-width: 320px; }
+  .form-row .hint { font-size: 11px; color: var(--muted); margin-left: 8px; }
+  .btn { padding: 7px 18px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .btn.primary { background: var(--primary); color: white; }
+  .btn.danger { background: var(--live); color: white; }
+  .btn.ghost { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+  /* Dialog */
+  .dialog {
+    background: var(--surface);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    padding: 24px;
+    max-width: 460px;
+    margin: 24px auto;
+    border-top: 4px solid var(--live);
+  }
+  .dialog h3 { color: var(--live); margin-top: 0; }
+  .dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+
+  /* Email preview */
+  .email-preview {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    margin: 14px 0;
+  }
+  .email-header { padding: 14px 18px; border-bottom: 1px solid var(--border); background: #f7f8fa; }
+  .email-header .from { font-size: 13px; color: var(--muted); }
+  .email-header .subj { font-weight: 600; font-size: 15px; margin: 4px 0; }
+  .email-body { padding: 18px; font-size: 13px; }
+  .email-body .signal-card { background: var(--sim-soft); border-left: 4px solid var(--sim); padding: 12px; border-radius: 4px; margin: 10px 0; }
+  .email-body .info-row { display: flex; gap: 8px; margin: 4px 0; }
+  .email-body .info-row .k { color: var(--muted); width: 110px; font-size: 12px; }
+  .email-body .info-row .v { font-weight: 600; }
+
+  /* Sub-tab in dashboard */
+  .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .subtab { padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  .subtab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+  /* Chart placeholder */
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; height: 200px; display: flex; align-items: flex-end; gap: 4px; }
+  .chart-box .bar { flex: 1; background: linear-gradient(180deg, var(--primary), #60a5fa); border-radius: 2px 2px 0 0; min-height: 10%; }
+
+  /* Right column in dashboard */
+  .row-2col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+
+  .footer-note { color: var(--muted); font-size: 12px; margin-top: 60px; text-align: center; border-top: 1px solid var(--border); padding-top: 20px; }
+  ul.requirement-list { padding-left: 0; list-style: none; }
+  ul.requirement-list li { padding: 8px 12px; background: var(--surface); border-left: 3px solid var(--border); margin: 6px 0; border-radius: 4px; font-size: 14px; }
+  ul.requirement-list li .id { font-family: monospace; color: var(--primary); font-weight: 600; margin-right: 8px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="toggleTheme()" aria-label="切換主題">
+  <span class="sun">☀</span>
+  <span id="theme-label">明亮版</span>
+  <span class="moon">🌙</span>
+</button>
+<script>
+  function applyTheme(t) {
+    if (t === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('theme-label').textContent = '深色版';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      document.getElementById('theme-label').textContent = '明亮版';
+    }
+    try { localStorage.setItem('req-doc-theme', t); } catch (e) {}
+  }
+  function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  }
+  (function init() {
+    let saved = null;
+    try { saved = localStorage.getItem('req-doc-theme'); } catch (e) {}
+    if (!saved) {
+      saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    applyTheme(saved);
+  })();
+</script>
+<div class="layout">
+
+<nav class="toc">
+  <h2>目錄</h2>
+  <ul>
+    <li><a href="#overview">1. 專案總覽</a></li>
+    <li><a href="#users">2. 利害關係人</a></li>
+    <li><a href="#usecases">3. 使用者情境</a></li>
+    <li><a href="#fr">4. 功能需求</a></li>
+    <li><a href="#fr-news" style="padding-left: 18px;">└ 4.10 新聞情緒 <span style="color: var(--live); font-weight: 600;">NEW</span></a></li>
+    <li><a href="#fr-chart" style="padding-left: 18px;">└ 4.11 K 線圖表 <span style="color: var(--live); font-weight: 600;">NEW</span></a></li>
+    <li><a href="#nfr">5. 非功能需求</a></li>
+    <li><a href="#arch">6. 系統架構</a></li>
+    <li><a href="#data">7. 資料模型</a></li>
+    <li><a href="#email">8. Email 格式</a></li>
+    <li><a href="#strategy">9. Dual Momentum 策略</a></li>
+    <li><a href="#flow">10. 操作流程</a></li>
+    <li><a href="#risks">11. 風險與假設</a></li>
+    <li><a href="#milestones">12. 里程碑</a></li>
+    <li><a href="#open">13. 開放議題</a></li>
+  </ul>
+  <h2>UI 介面設計</h2>
+  <ul>
+    <li><a href="#ui-dashboard">主控台 (Dashboard)</a></li>
+    <li><a href="#ui-chart">K 線圖表 <span style="color: var(--live); font-weight: 600;">NEW</span></a></li>
+    <li><a href="#ui-news">新聞情緒 <span style="color: var(--live); font-weight: 600;">NEW</span></a></li>
+    <li><a href="#ui-settings">設定 (Settings)</a></li>
+    <li><a href="#ui-backtest">回測 (Backtest)</a></li>
+    <li><a href="#ui-mode-dialog">模式切換對話框</a></li>
+    <li><a href="#ui-email">Email 範例</a></li>
+    <li><a href="#ui-news-email">新聞 Digest Email <span style="color: var(--live); font-weight: 600;">NEW</span></a></li>
+  </ul>
+</nav>
+
+<main>
+<h1>自動化股票交易系統</h1>
+<p style="color: var(--muted); font-size: 16px;">需求文件 (Requirements Document) — v0.1 Draft</p>
+
+<div class="meta-card">
+  <table>
+    <tr><td>文件版本</td><td>v0.3 (Draft)</td></tr>
+    <tr><td>建立日期</td><td>2026-05-23</td></tr>
+    <tr><td>最後更新</td><td>2026-05-23 — 落地 Q1/Q2/Q3 決策 + 分階段釋出</td></tr>
+    <tr><td>文件擁有者</td><td>gamma.jeff.lin@gmail.com</td></tr>
+    <tr><td>目標讀者</td><td>開發者本人（同時為使用者）</td></tr>
+    <tr><td>狀態</td><td><span class="badge p1">規劃中</span> 待確認後進入設計階段</td></tr>
+  </table>
+</div>
+
+<!-- =========== 1. Overview =========== -->
+<h2 id="overview">1. 專案總覽</h2>
+
+<h3>1.1 背景</h3>
+<p>開發者持有永豐金證券帳戶，具備程式開發能力但對量化交易策略仍在學習階段。希望透過自動化系統降低手動操作負擔、移除情緒影響，並透過模擬模式安全地學習策略表現後再以小額實盤驗證。</p>
+
+<h3>1.2 目標</h3>
+<ol>
+  <li>提供一套可在 Windows 上以 <strong>MSI 安裝檔</strong>部署的桌面應用程式。</li>
+  <li>支援 <strong>模擬模式 (Paper Trading)</strong> 與 <strong>實盤模式 (Live)</strong> 兩種操作。</li>
+  <li>台股：透過永豐 Shioaji Python API <strong>全自動</strong>。</li>
+  <li>美股：程式運算訊號後以 <strong>Email 通知</strong>，由使用者手動下單（半自動）。</li>
+  <li>提供基本回測能力，內建風險控管機制。</li>
+  <li><strong>每日自動蒐集國外財經與科技新聞</strong>，透過 LLM 分析後產出選股候選清單 (Watchlist) 並寄送 Email 摘要；候選需使用者人工核可才轉為交易訊號。</li>
+</ol>
+
+<h3>1.3 非目標 (Out of Scope)</h3>
+<ul>
+  <li>高頻 / 盤中即時交易</li>
+  <li>多使用者、雲端部署</li>
+  <li>期貨、選擇權、加密貨幣</li>
+  <li>自行訓練 ML / 深度學習選股模型（外部 LLM API 分析新聞屬於範圍內）</li>
+  <li>做空、融資融券</li>
+  <li>新聞驅動的全自動下單（新聞模組僅輸出 Watchlist，下單需人工核可）</li>
+</ul>
+
+<!-- =========== 2. Stakeholders =========== -->
+<h2 id="users">2. 利害關係人</h2>
+<table>
+  <thead><tr><th>角色</th><th>描述</th><th>關注</th></tr></thead>
+  <tbody>
+    <tr><td>開發者 / 使用者</td><td>唯一使用者，負責開發、維運、實際下單</td><td>系統穩定、訊號正確、不被誤觸實盤</td></tr>
+    <tr><td>永豐金證券 (Shioaji)</td><td>台股 API 提供者</td><td>API 配額、CA 合規</td></tr>
+    <tr><td>yfinance</td><td>美股 / 台股日線資料</td><td>抓取頻率不被封鎖</td></tr>
+    <tr><td>Anthropic Claude API</td><td>新聞 LLM 分析</td><td>成本控制、回應穩定</td></tr>
+    <tr><td>新聞來源 (RSS / Reddit / EDGAR)</td><td>國外財經與科技新聞</td><td>來源可靠、避免假新聞</td></tr>
+    <tr><td>SMTP 服務</td><td>Email 通知通道</td><td>寄送成功率、認證安全</td></tr>
+  </tbody>
+</table>
+
+<!-- =========== 3. Use Cases =========== -->
+<h2 id="usecases">3. 使用者情境</h2>
+<h3>UC-01 首次安裝與設定</h3>
+<p>下載 MSI → 安裝 → 設定頁輸入 Shioaji 帳密、CA 路徑、Email SMTP → 預設啟動為「模擬模式」。</p>
+<h3>UC-02 每日收盤後執行（自動）</h3>
+<p>Windows Task Scheduler 觸發 CLI → 抓資料 → 算訊號 → 風控檢查 → 下單（台股自動／美股寄信）→ 寫日誌 → 寄每日摘要。</p>
+<h3>UC-03 啟動 GUI 檢視狀態</h3>
+<p>使用者開啟 App，於主控台檢視當日訊號、持倉、未實現損益、累計績效曲線。</p>
+<h3>UC-04 切換模擬 ↔ 實盤</h3>
+<p>頂欄按下切換按鈕 → 二次確認對話框 → 輸入確認字串 "LIVE" → 驗證 Shioaji 連線 → 切換完成、UI 變紅。</p>
+<h3>UC-05 執行歷史回測</h3>
+<p>於回測頁選策略、起訖日、標的池 → 執行 → 檢視績效曲線、Sharpe、最大回撤。</p>
+<h3>UC-06 接收 Email 通知</h3>
+<p>美股訊號（即時）、每日交易摘要（收盤後）、<strong>每日新聞情緒摘要</strong>、系統異常告警。</p>
+
+<h3>UC-07 新聞分析與選股流程 <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h3>
+<ol>
+  <li>系統於每日 06:00（美股盤後）與 21:30（美股盤前）兩個時間自動抓取新聞。</li>
+  <li>經 Claude API 分析後產出結構化資料（tickers、sentiment、catalyst、impact_score）。</li>
+  <li>排序後選出 Top N 候選標的，寄出 Daily News Digest Email。</li>
+  <li>使用者於 GUI「新聞情緒」頁瀏覽候選清單，可逐筆「加入 Watchlist」。</li>
+  <li>Watchlist 中的標的需使用者再次點擊「轉為交易訊號」，才會經 RiskGuard 並送入下單流程（模擬或實盤）。</li>
+  <li><strong>兩段式核可</strong>確保新聞驅動的判斷不會在使用者沒注意時自動下單。</li>
+</ol>
+
+<!-- =========== 4. Functional Requirements =========== -->
+<h2 id="fr">4. 功能需求</h2>
+
+<h3>4.1 模式管理 (Mode Management)</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-MM-01</span> 全域「執行模式」狀態僅有 <code>SIMULATION</code> 與 <code>LIVE</code> <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-02</span> 預設啟動為 <code>SIMULATION</code> <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-03</span> SIM → LIVE 需二次確認（輸入 "LIVE" 字串） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-04</span> UI 全程顯示模式色彩：模擬綠、實盤紅 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-05</span> 距上次切換 &gt; 24 小時自動回到模擬 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-MM-06</span> 所有 Email 標題標示 [SIM] 或 [LIVE] <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-07</span> 模擬模式下，下單僅走 SimulatedBroker，不呼叫真實 API <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-MM-08</span> <strong>雙帳本完全隔離</strong>：SIM/LIVE 各有獨立 account_id，部位、訊號、Watchlist、委託紀錄各自一套；切換 = 切換顯示與下單目標的帳本；非當前模式資料保留但凍結 <span class="badge p0">P0</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+  <li><span class="id">FR-MM-09</span> 24h 自動回 SIM 時 LIVE 帳本資料不消失；重新進入 LIVE 仍需二段確認 + 顯示「您仍有 N 筆未平倉實盤部位」 <span class="badge p0">P0</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+  <li><span class="id">FR-MM-10</span> 切換對話框顯示「即將切到 Y 帳本，X 帳本有 N 筆部位將被凍結」 <span class="badge p0">P0</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+  <li><span class="id">FR-MM-11</span> 實盤有未平倉部位時，禁止重置 LIVE 帳本資料 <span class="badge p0">P0</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+</ul>
+
+<h3>4.2 策略引擎</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-SE-01</span> 內建 Dual Momentum 策略 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-SE-02</span> 可插拔架構，新策略不修改核心 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-SE-03</span> 策略參數 UI 可調 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-SE-04</span> 策略只輸出 Signal 物件，不直接下單 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-SE-05</span> 同策略可同時跑台股 + 美股 <span class="badge p1">P1</span></li>
+</ul>
+
+<h3>4.3 資料層</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-DL-01</span> 台股優先 Shioaji kbars，失敗退回 yfinance <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-DL-02</span> 美股使用 yfinance <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-DL-03</span> 本地 SQLite 快取 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-DL-04</span> 提供強制重抓按鈕 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-DL-05</span> 資料完整性驗證（缺漏、異常價格、跳空） <span class="badge p1">P1</span></li>
+</ul>
+
+<h3>4.4 執行層</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-EX-01</span> 台股透過 Shioaji place_order，同時掛停損條件單 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-EX-02</span> 美股寄結構化 Email（標的、量、價、停損） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-EX-03</span> 模擬模式以 <strong>T+1 日開盤價</strong>成交（避免 look-ahead bias），扣除手續費 + 滑價；回測引擎同規則 <span class="badge p0">P0</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">改寫 v0.3</span></li>
+  <li><span class="id">FR-EX-04</span> 所有下單動作寫入交易日誌 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-EX-05</span> 實盤下單失敗自動寄告警 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-EX-06</span> <strong>跳空保護（預設開啟）</strong>：T+1 開盤跳空超過 ±5% 視為未成交，門檻 UI 可調 <span class="badge p1">P1</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+  <li><span class="id">FR-EX-07</span> 訊號狀態區分 <code>PENDING_T+1_OPEN</code> / <code>FILLED</code> / <code>UNFILLED_GAP</code> / <code>REJECTED_RISK</code> / <code>MANUAL</code> / <code>FAILED</code> <span class="badge p1">P1</span> <span style="background: var(--live-soft); color: var(--live); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">NEW v0.3</span></li>
+</ul>
+
+<h3>4.5 風險控管</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-RM-01</span> 單筆部位風險 ≤ 1% <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-RM-02</span> 總持倉 ≤ 80%（保留 20% 現金） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-RM-03</span> 單日最大虧損熔斷 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-RM-04</span> 違反風控的訊號需被攔截 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-RM-05</span> 實盤模式下調整風控需二次確認 <span class="badge p1">P1</span></li>
+</ul>
+
+<h3>4.6 通知系統</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-NT-01</span> 支援 SMTP (TLS) <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NT-02</span> 密碼以 DPAPI 加密儲存 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NT-03</span> HTML 格式 Email <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NT-04</span> 提供寄測試信按鈕 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NT-05</span> 系統異常自動告警 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NT-06</span> 每日摘要信 <span class="badge p1">P1</span></li>
+</ul>
+
+<h3>4.7 回測</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-BT-01</span> 回測 UI（策略、日期、初始資金、標的池） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-BT-02</span> 與實盤使用同一策略物件 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-BT-03</span> 輸出年化、累積、最大回撤、Sharpe、勝率、次數 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-BT-04</span> 績效曲線（與基準比較） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-BT-05</span> 匯出 CSV / PNG <span class="badge p1">P1</span></li>
+</ul>
+
+<h3>4.8 使用者介面</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-UI-01</span> PySide6 (Qt) 桌面 GUI <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-UI-02</span> 五分頁：主控台、策略、回測、訊號日誌、設定 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-UI-03</span> 頂欄固定顯示模式、時間、市場狀態、最近同步 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-UI-04</span> 金額 TWD / USD 切換 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-UI-05</span> 淺色 / 深色主題切換，於頂欄提供明顯 toggle <span class="badge p1">P1</span> <em style="font-size: 11px; color: var(--muted); margin-left: 6px;">（本文件右上角按鈕可直接預覽）</em></li>
+  <li><span class="id">FR-UI-06</span> 最小化到系統匣 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-UI-07</span> 主題設定持久化，預設依循 Windows 系統主題 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-UI-08</span> 主題切換時所有頁面、圖表、Email 即時切換不需重啟 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-UI-09</span> 深色版下 K 線維持市場慣例（綠/紅），對比加強；圖表背景使用深灰非純黑 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-UI-10</span> 模式色彩在深色版下使用較飽和色階維持顯眼度 <span class="badge p0">P0</span></li>
+</ul>
+
+<h3>4.9 排程</h3>
+<ul class="requirement-list">
+  <li><span class="id">FR-SC-01</span> Windows Task Scheduler 觸發 CLI 模式 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-SC-02</span> GUI 顯示下次執行時間 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-SC-03</span> 排程 log 在訊號日誌頁可看 <span class="badge p0">P0</span></li>
+</ul>
+
+<h3 id="fr-news">4.10 新聞情緒分析與選股建議 <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h3>
+
+<p><strong>目的：</strong> 自動蒐集國外專業財經與科技新聞，透過 LLM 分析後產出選股候選清單，協助使用者捕捉技術指標看不到的基本面催化劑（產品發表、財報、併購、監管事件等）。</p>
+
+<div class="callout danger">
+<strong>安全設計四大護欄</strong>
+<ol style="margin: 6px 0 0;">
+  <li>永不自動下單（候選 → Watchlist → 訊號 需<strong>兩段</strong>人工核可）</li>
+  <li>多源交叉驗證（至少 3 個獨立來源提及才標示為強訊號）</li>
+  <li>每日 LLM API 成本上限（預設 $0.3 USD/天，超過自動停止並告警）</li>
+  <li>黑名單機制（可永久排除特定 ticker 或來源）</li>
+</ol>
+</div>
+
+<h4>4.10.1 資料抓取 (Collector)</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-NS-01</span> 每日 06:00（美股盤後）與 21:30（美股盤前）兩次抓取 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-02</span> 預設來源：yfinance news、CNBC / Reuters / Ars Technica / TechCrunch / The Verge RSS、Reddit JSON、SEC EDGAR 8-K <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-03</span> 來源可於 UI 啟用 / 停用、新增自訂 RSS URL <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-04</span> 去重（URL hash + 標題相似度 ≥ 0.85） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-05</span> raw_text 儲存於 SQLite，方便重新分析 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-06</span> 抓取失敗指數退避重試 3 次 <span class="badge p0">P0</span></li>
+</ul>
+
+<h4>4.10.2 LLM 分析 (Analyzer)</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-NS-07</span> 使用 Anthropic Claude API（預設 <code>claude-haiku-4-5</code>） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-08</span> 每篇輸出結構化 JSON：<code>{tickers, sentiment, catalysts, impact_score, summary, lang}</code> <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-09</span> Prompt caching（system prompt 部分快取）降低成本 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-10</span> 每日 LLM 成本上限預設 USD 0.3，UI 可調 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-11</span> 超過上限自動停止、寄告警、寫 app_log <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-12</span> 失敗呼叫不超過 2 次重試 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-13</span> API key 以 DPAPI 加密 <span class="badge p0">P0</span></li>
+</ul>
+
+<h4>4.10.3 對應與排序 (Mapper & Ranker)</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-NS-14</span> 公司名 → ticker 對應（yfinance + 內建表） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-15</span> 對應信心度 &lt; 0.7 不進入排序 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-16</span> 排序：<code>score = impact × source_credibility × recency × multi_source_bonus</code> <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-17</span> ≥ 3 獨立來源 = 強訊號；單一來源 = 弱訊號 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-18</span> 來源信用度 UI 可調（預設 Reuters/SEC &gt; yfinance &gt; 科技媒體 &gt; Reddit） <span class="badge p2">P2</span></li>
+  <li><span class="id">FR-NS-19</span> Top N 候選（預設 N=10），含買賣方向與摘要 <span class="badge p0">P0</span></li>
+</ul>
+
+<h4>4.10.4 Watchlist 與核可流程</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-NS-20</span> GUI 新增「新聞情緒」分頁 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-21</span> 候選 <strong>絕不</strong>自動產生訊號，僅進 Watchlist <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-22</span> Watchlist 點「轉為訊號」後仍需通過 RiskGuard <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-23</span> 黑名單：排除 ticker / 來源 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-24</span> 假新聞回報按鈕，自動下調來源信用度 <span class="badge p2">P2</span></li>
+  <li><span class="id">FR-NS-25</span> Watchlist 7 天後自動過期 <span class="badge p1">P1</span></li>
+</ul>
+
+<h4>4.10.5 通知與報告</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-NS-26</span> 每日寄送 Daily News Digest <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-27</span> 內容：Top 10 候選、每則摘要、影響分、來源清單、買賣建議 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-NS-28</span> 標題含 [SIM]/[LIVE] 與當日 LLM 累計成本 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-NS-29</span> 強訊號醒目色標示 <span class="badge p1">P1</span></li>
+</ul>
+
+<h3 id="fr-chart">4.11 K 線圖表與技術分析 <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h3>
+<p><strong>目的：</strong> 提供視覺化價量分析輔助決策；技術指標僅供參考，<strong>不獨立觸發下單</strong>（仍以策略訊號為準）。</p>
+
+<h4>4.11.1 圖表呈現</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-CH-01</span> 新增「圖表」分頁，可選擇任一標的顯示 K 線 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-02</span> 時間週期：日線 (預設)、週線、月線、60 分線 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-03</span> 顏色：台股紅漲綠跌、美股綠漲紅跌（依市場切換） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-04</span> 滑鼠十字游標 + OHLC / 量 tooltip <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-05</span> 縮放、平移、復位 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-06</span> 持倉 / Watchlist 列尾顯示 30 日 sparkline 縮圖 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-07</span> 回測頁顯示策略進出場點位於 K 線上 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-08</span> 匯出 PNG <span class="badge p2">P2</span></li>
+</ul>
+
+<h4>4.11.2 技術指標</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-CH-10</span> 移動平均線：MA5 / MA10 / MA20 / MA60 / MA200，可獨立勾選 <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-11</span> 布林通道 20 ± 2σ <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-12</span> 成交量柱狀圖（副圖） <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-13</span> RSI (14)：副圖、70/30 水平線 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-14</span> MACD：DIF / DEA / 柱狀 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-15</span> 指標參數 UI 可調 <span class="badge p2">P2</span></li>
+  <li><span class="id">FR-CH-16</span> 統一指標計算函式（回測與即時一致） <span class="badge p0">P0</span></li>
+</ul>
+
+<h4>4.11.3 自動形態 / 訊號提示</h4>
+<ul class="requirement-list">
+  <li><span class="id">FR-CH-20</span> 黃金交叉 / 死亡交叉（MA5 ↕ MA20） <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-21</span> 突破布林上 / 下軌 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-22</span> RSI 超買 (≥70) / 超賣 (≤30) <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-23</span> 成交量爆量（&gt; 20 日均量 × 2） <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-24</span> 形態於 K 線上標籤標示 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-25</span> 圖表右側列出近期形態觸發時點 <span class="badge p1">P1</span></li>
+  <li><span class="id">FR-CH-26</span> <strong>僅供參考、UI 明確標示「非交易訊號」</strong> <span class="badge p0">P0</span></li>
+  <li><span class="id">FR-CH-27</span> 可作為策略訊號的「條件過濾器」（進階） <span class="badge p2">P2</span></li>
+</ul>
+
+<!-- =========== 5. NFR =========== -->
+<h2 id="nfr">5. 非功能需求</h2>
+
+<h3>5.1 安全性</h3>
+<table>
+  <tr><td><code>NFR-SEC-01</code></td><td>Shioaji 帳密、CA 密碼、SMTP 密碼以 Windows DPAPI 加密</td></tr>
+  <tr><td><code>NFR-SEC-02</code></td><td>日誌不得記錄完整密碼，顯示 ****</td></tr>
+  <tr><td><code>NFR-SEC-03</code></td><td>MSI 建議簽署（避免 SmartScreen 攔截）</td></tr>
+  <tr><td><code>NFR-SEC-04</code></td><td>更新時保留使用者設定與資料庫</td></tr>
+</table>
+
+<h3>5.2 可靠性</h3>
+<table>
+  <tr><td><code>NFR-REL-01</code></td><td>策略執行需 100% 完成或寄出告警</td></tr>
+  <tr><td><code>NFR-REL-02</code></td><td>資料抓取指數退避重試 (≤ 3 次)</td></tr>
+  <tr><td><code>NFR-REL-03</code></td><td>外部 API 設置 timeout</td></tr>
+</table>
+
+<h3>5.3 效能</h3>
+<table>
+  <tr><td><code>NFR-PER-01</code></td><td>單日決策 (≤ 30 標的) &lt; 30 秒</td></tr>
+  <tr><td><code>NFR-PER-02</code></td><td>GUI 回應 &lt; 200ms</td></tr>
+  <tr><td><code>NFR-PER-03</code></td><td>回測 10 年 / 5 標的 &lt; 60 秒</td></tr>
+</table>
+
+<h3>5.4 部署</h3>
+<table>
+  <tr><td><code>NFR-DEP-01</code></td><td>交付為 MSI（cx_Freeze bdist_msi）</td></tr>
+  <tr><td><code>NFR-DEP-02</code></td><td>安裝路徑 <code>C:\Program Files\StocksTrading\</code>；資料 <code>%LOCALAPPDATA%\StocksTrading\</code></td></tr>
+  <tr><td><code>NFR-DEP-03</code></td><td>含開始選單、桌面捷徑、解除安裝項目</td></tr>
+  <tr><td><code>NFR-DEP-04</code></td><td>升級保留使用者資料</td></tr>
+</table>
+
+<!-- =========== 6. Architecture =========== -->
+<h2 id="arch">6. 系統架構</h2>
+<pre>┌────────────────────────────────────────────────────────────────┐
+│                    PySide6 桌面 GUI                             │
+│  主控台 │ 策略 │ 回測 │ 新聞情緒 │ 訊號日誌 │ 設定             │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │
+┌──────────────────────────┴─────────────────────────────────────┐
+│                     應用服務層 (Service)                        │
+│  StrategyRunner │ ModeManager │ NotificationService             │
+│  BacktestEngine │ RiskGuard   │ SchedulerService                │
+│  NewsPipeline   │ CostGuard   │ WatchlistService                │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │
+┌──────────────┬──────────┬┴────────┬──────────────┬─────────────┐
+│ MarketData   │ NewsData │ Broker  │ LLM Client   │ Notifier    │
+│ ┌─yfinance   │ ┌─RSS    │ ┌─Shio… │ ┌─Anthropic │ SmtpNotifier│
+│ └─Shioaji    │ ├─NewsAPI│ ├─Simul…│ │ (Claude)  │             │
+│   kbars      │ ├─Reddit │ └─Email │ └─PromptCach│ Storage:    │
+│              │ └─EDGAR  │  (US)   │              │ SQLite      │
+└──────────────┴──────────┴─────────┴──────────────┴─────────────┘
+                           │
+                    外部依賴 (External)
+   Shioaji · yfinance · SMTP · Anthropic API · RSS feeds · EDGAR</pre>
+
+<div class="callout info">
+<strong>設計核心：</strong>
+<ul style="margin: 6px 0 0;">
+  <li><code>Broker</code> 為抽象介面，<code>ShioajiBroker</code> / <code>SimulatedBroker</code> / <code>EmailBroker</code> 為三種實作。</li>
+  <li><code>ModeManager</code> 決定當前要把訊號送到哪個 Broker。</li>
+  <li><code>NewsPipeline</code> 為獨立模組：Collector → Analyzer → Mapper → Ranker → WatchlistService；產出<strong>僅進 Watchlist</strong>，不直接觸發訊號。</li>
+  <li><code>CostGuard</code> 監控 LLM API 累計成本，超過上限自動停止並告警。</li>
+</ul>
+</div>
+
+<!-- =========== 7. Data Model =========== -->
+<h2 id="data">7. 資料模型 (SQLite)</h2>
+<table>
+  <thead><tr><th>表格</th><th>欄位</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td><code>accounts</code></td><td>id, name, mode, broker, init_capital, created_at</td><td>帳戶（模擬 / 實盤分開）</td></tr>
+    <tr><td><code>positions</code></td><td>account_id, symbol, market, qty, avg_price, stop_loss, opened_at</td><td>當前持倉</td></tr>
+    <tr><td><code>orders</code></td><td>id, account_id, mode, symbol, side, qty, price, stop_loss, status, placed_at, filled_at</td><td>委託紀錄</td></tr>
+    <tr><td><code>signals</code></td><td>id, strategy, symbol, side, target_price, stop_loss, generated_at, sent</td><td>策略訊號</td></tr>
+    <tr><td><code>daily_pnl</code></td><td>account_id, date, equity, realized_pnl, unrealized_pnl</td><td>每日損益快照</td></tr>
+    <tr><td><code>kbars_cache</code></td><td>symbol, date, open, high, low, close, volume</td><td>日線快取</td></tr>
+    <tr><td><code>app_log</code></td><td>ts, level, module, message</td><td>系統日誌</td></tr>
+    <tr><td><code>news_articles</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>id, source, url, url_hash, title, published_at, lang, raw_text, fetched_at</td><td>原始新聞</td></tr>
+    <tr><td><code>news_analysis</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>article_id, model, sentiment, impact_score, summary, catalysts_json, tickers_json, cost_usd, analyzed_at</td><td>LLM 分析結果</td></tr>
+    <tr><td><code>news_tickers</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>article_id, ticker, confidence</td><td>新聞 ↔ ticker 對應</td></tr>
+    <tr><td><code>watchlist</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>id, ticker, market, side, source_articles_json, score, status, added_at, expires_at</td><td>候選清單 (status: pending/promoted/dismissed/expired)</td></tr>
+    <tr><td><code>llm_cost_daily</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>date, model, calls, input_tokens, output_tokens, cost_usd</td><td>每日 LLM 成本累計</td></tr>
+    <tr><td><code>blacklist</code> <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td><td>type, value, reason, added_at</td><td>黑名單 (ticker / source)</td></tr>
+  </tbody>
+</table>
+
+<!-- =========== 8. Email =========== -->
+<h2 id="email">8. Email 通知格式</h2>
+<table>
+  <thead><tr><th>類型</th><th>標題範例</th><th>內容</th></tr></thead>
+  <tbody>
+    <tr><td>美股訊號</td><td><code>[SIM] 美股訊號 - 2026-05-23 - 買進 QQQ</code></td><td>HTML 表格：標的、價、量、停損、原因、執行截止時間</td></tr>
+    <tr><td>每日摘要</td><td><code>[SIM] 每日摘要 - 2026-05-23</code></td><td>成交、持倉、損益、明日訊號預告、累計績效</td></tr>
+    <tr><td>系統告警</td><td><code>[ALERT] StocksTrading - Shioaji 登入失敗</code></td><td>錯誤訊息、時間、堆疊摘要、建議行動</td></tr>
+    <tr>
+      <td>新聞 Digest <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></td>
+      <td><code>[SIM] 新聞情緒摘要 - 2026-05-23 - 5 強訊號 / 12 候選 / $0.18</code></td>
+      <td>Top 10 候選標的（含買賣方向、影響分、來源數、摘要）；強訊號醒目色；當日累計 LLM 成本</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =========== 9. Strategy =========== -->
+<h2 id="strategy">9. 第一階段策略：Dual Momentum</h2>
+<h3>9.1 邏輯</h3>
+<ol>
+  <li>每月最後一個交易日再平衡。</li>
+  <li>計算標的池中每檔過去 252 交易日累積報酬。</li>
+  <li>絕對動能 &lt; 4% 年化 → 視為現金 (TLT / BIL)。</li>
+  <li>從通過者中選相對動能前 N 名（預設 N=2）。</li>
+  <li>平均加碼下個月持有。</li>
+</ol>
+<h3>9.2 預設標的池</h3>
+<table>
+  <tr><th>市場</th><th>標的</th></tr>
+  <tr><td>美股</td><td>SPY、QQQ、IWM、EFA、VNQ、TLT、GLD</td></tr>
+  <tr><td>台股</td><td>0050、0056、00878、00919</td></tr>
+</table>
+
+<!-- =========== 10. Flow =========== -->
+<h2 id="flow">10. 操作流程</h2>
+<h3>10.1 模式切換 (Sim → Live)</h3>
+<pre>使用者點擊頂欄 [模擬模式]
+  ↓
+彈出警告對話框 + 風險提示
+  ↓
+要求輸入 "LIVE"
+  ↓
+驗證 Shioaji 連線、CA 憑證
+  ↓
+成功 → 切換完成、UI 變紅
+失敗 → 維持模擬模式，顯示錯誤</pre>
+
+<h3>10.2 每日策略執行</h3>
+<pre>Scheduler 觸發 (CLI 模式)
+  ↓
+讀當前模式 → 載入對應 Broker
+  ↓
+資料層更新最新日線
+  ↓
+StrategyRunner → Signal[]
+  ↓
+RiskGuard 過濾
+  ↓
+台股 → ShioajiBroker / SimulatedBroker
+美股 → EmailBroker / SimulatedBroker
+  ↓
+寫入 orders / positions / signals
+  ↓
+NotificationService 寄出摘要</pre>
+
+<!-- =========== 11. Risks =========== -->
+<h2 id="risks">11. 風險與假設</h2>
+<table>
+  <thead><tr><th>風險</th><th>影響</th><th>緩解</th></tr></thead>
+  <tbody>
+    <tr><td>誤觸切換實盤</td><td>高</td><td>二次確認 + 顏色警示 + 24h 自動重置</td></tr>
+    <tr><td>Shioaji API 不穩</td><td>中</td><td>退回 yfinance、異常告警</td></tr>
+    <tr><td>美股 Email 漏看</td><td>中</td><td>桌面 Toast 通知 + 每日摘要再次提醒</td></tr>
+    <tr><td>MSI 缺 Python runtime</td><td>高</td><td>cx_Freeze 內含 frozen Python</td></tr>
+    <tr><td>模擬與實盤績效偏離</td><td>中</td><td>內建滑價、手續費、稅費假設</td></tr>
+    <tr style="background: var(--live-soft);"><td><strong>LLM 幻覺：虛構 ticker / 編造影響</strong></td><td>高</td><td>TickerMapper 信心度門檻、要求 LLM 引用原文片段、絕不自動下單</td></tr>
+    <tr style="background: var(--live-soft);"><td><strong>新聞來源含假消息 / pump-and-dump</strong></td><td>高</td><td>多源交叉驗證（≥ 3 來源才標強訊號）、來源信用度權重、黑名單機制</td></tr>
+    <tr style="background: var(--live-soft);"><td><strong>LLM API 成本失控</strong></td><td>中</td><td>每日預算上限、CostGuard 監控、超過自動停止並告警</td></tr>
+    <tr style="background: var(--live-soft);"><td><strong>新聞滯後，價格已反映</strong></td><td>中</td><td>盤前盤後兩次抓取、疊加技術面過濾不孤立使用新聞訊號</td></tr>
+    <tr style="background: var(--live-soft);"><td><strong>過度依賴 LLM 推薦、跳過自己思考</strong></td><td>高</td><td>Watchlist 兩段核可、Email 提醒「不構成投資建議」、3 個月 paper 驗證後才實盤</td></tr>
+  </tbody>
+</table>
+
+<!-- =========== 12. Milestones =========== -->
+<h2 id="milestones">12. 里程碑與交付計畫 — 分階段釋出 <span style="background: var(--live-soft); color: var(--live); padding: 4px 10px; border-radius: 10px; font-size: 12px;">重構 v0.3</span></h2>
+
+<div class="callout info">
+<strong>設計原則：</strong> 單人開發最大風險是動力斷掉。早點有東西能跑、邊用邊修，比一條龍 15 週才上線好。<strong>每個階段交付獨立可用的 MSI 安裝檔。</strong>
+</div>
+
+<h3 style="margin-top: 24px;">v1.0 — Paper Trading MVP <span style="color: var(--muted); font-size: 14px; font-weight: 400;">(累計 ~7 週)</span></h3>
+<p><strong>目標：</strong>可安裝 MSI、跑 Dual Momentum、做回測、收 Email、純模擬累積績效。<strong>LIVE 模式 UI 隱藏 / 灰階提示「v1.5 開放」</strong>。</p>
+<table>
+  <thead><tr><th>M#</th><th>內容</th><th>估時</th></tr></thead>
+  <tbody>
+    <tr><td>M0</td><td>骨架、Broker 抽象、SQLite schema、DPAPI 設定加密</td><td>1 週</td></tr>
+    <tr><td>M1</td><td>yfinance / Shioaji 行情、Dual Momentum、回測引擎 (T+1 規則)</td><td>1 週</td></tr>
+    <tr><td>M2</td><td>SimulatedBroker、T+1 開盤成交、雙帳本損益</td><td>1 週</td></tr>
+    <tr><td>M3</td><td>PySide6 五大分頁、主控台、深色主題</td><td>2 週</td></tr>
+    <tr><td>M4a</td><td>SMTP 核心 + 每日摘要 + 系統告警</td><td>0.5 週</td></tr>
+    <tr><td>M6a</td><td>cx_Freeze + MSI 基礎、Task Scheduler 範本</td><td>1 週</td></tr>
+    <tr style="background: var(--sim-soft);"><td><strong>v1.0 出貨</strong></td><td><strong>Paper Trading 完整系統</strong></td><td><strong>~6.5 週</strong></td></tr>
+  </tbody>
+</table>
+<div style="font-size: 13px; color: var(--muted); margin: 6px 0 24px; padding: 8px 12px; background: var(--code-bg); border-radius: 4px;">
+  <strong>Entry：</strong> 模擬連續成功跑 5 個交易日無例外 &nbsp;·&nbsp;
+  <strong>Exit：</strong> Paper trading ≥ 1 個月、無資料遺失、無 critical bug
+</div>
+
+<h3 style="margin-top: 24px;">v1.5 — 實盤 + K 線圖表 <span style="color: var(--muted); font-size: 14px; font-weight: 400;">(+4.5 週 / 累計 ~11 週)</span></h3>
+<p><strong>目標：</strong>開啟實盤、台股自動下單、美股 Email 通知、K 線圖表輔助。</p>
+<table>
+  <thead><tr><th>M#</th><th>內容</th><th>估時</th></tr></thead>
+  <tbody>
+    <tr><td>M5</td><td>ShioajiBroker 實盤、條件停損單、EmailBroker (US)、RiskGuard 完整</td><td>1.5 週</td></tr>
+    <tr><td>M4b</td><td>訊號通知 Email HTML 範本、美股下單檢核清單</td><td>0.5 週</td></tr>
+    <tr><td>M5.7</td><td>pyqtgraph K 線、IndicatorEngine、PatternDetector、圖表分頁、sparkline</td><td>2 週</td></tr>
+    <tr><td>整合測試</td><td>LIVE↔SIM 切換壓力測試、實盤前驗收</td><td>0.5 週</td></tr>
+    <tr style="background: var(--sim-soft);"><td><strong>v1.5 出貨</strong></td><td><strong>實盤 + 圖表完整</strong></td><td><strong>~4.5 週</strong></td></tr>
+  </tbody>
+</table>
+<div style="font-size: 13px; color: var(--muted); margin: 6px 0 24px; padding: 8px 12px; background: var(--code-bg); border-radius: 4px;">
+  <strong>Entry：</strong> v1.0 paper ≥ 1 個月、雙帳本切換無 bug、Shioaji 模擬下單通過 &nbsp;·&nbsp;
+  <strong>Exit：</strong> 台股小額實盤 2 週無異常、雙帳本資料正確隔離
+</div>
+
+<h3 style="margin-top: 24px;">v2.0 — 新聞情緒模組 <span style="color: var(--muted); font-size: 14px; font-weight: 400;">(+3 週 / 累計 ~14 週)</span></h3>
+<p><strong>目標：</strong>加入 LLM 新聞分析，自動產出 Watchlist 候選，人工核可後轉訊號。</p>
+<table>
+  <thead><tr><th>M#</th><th>內容</th><th>估時</th></tr></thead>
+  <tbody>
+    <tr><td>M5.5a</td><td>NewsCollector：RSS / Reddit / EDGAR + 去重</td><td>0.5 週</td></tr>
+    <tr><td>M5.5b</td><td>LLMAnalyzer：Claude haiku-4-5、prompt caching、CostGuard</td><td>0.7 週</td></tr>
+    <tr><td>M5.5c</td><td>TickerMapper + Ranker</td><td>0.5 週</td></tr>
+    <tr><td>M5.5d</td><td>Watchlist GUI + 兩段核可、新聞情緒分頁</td><td>0.8 週</td></tr>
+    <tr><td>M5.5e</td><td>Daily News Digest Email 範本</td><td>0.3 週</td></tr>
+    <tr><td>整合測試</td><td>端對端 + 成本控管驗證</td><td>0.2 週</td></tr>
+    <tr style="background: var(--sim-soft);"><td><strong>v2.0 出貨</strong></td><td><strong>新聞情緒完整</strong></td><td><strong>~3 週</strong></td></tr>
+  </tbody>
+</table>
+<div style="font-size: 13px; color: var(--muted); margin: 6px 0 24px; padding: 8px 12px; background: var(--code-bg); border-radius: 4px;">
+  <strong>Entry：</strong> v1.5 實盤穩定 ≥ 1 個月、Anthropic API 申請完成 &nbsp;·&nbsp;
+  <strong>Exit：</strong> Watchlist paper 驗證 1 個月可接受、無成本失控
+</div>
+
+<h3 style="margin-top: 24px;">持續階段 + 工時總結</h3>
+<table>
+  <thead><tr><th>項目</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td>M7 持續</td><td>Paper trading 自 v1.0 起即開始，建議至少 3 個月才考慮實盤</td></tr>
+    <tr><td>M8 持續</td><td>實盤小額自 v1.5 起，1 萬 TWD 以下、單筆 ≤ 1% 風險</td></tr>
+    <tr><td>未來</td><td>中文新聞、付費 API 升級、選擇權、多策略並行（v3+）</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead><tr><th>合計</th><th>工時</th></tr></thead>
+  <tbody>
+    <tr><td>v1.0 + v1.5 + v2.0 核心</td><td>14 週</td></tr>
+    <tr><td>+ 風險 buffer (30%)</td><td>+4 週</td></tr>
+    <tr style="background: var(--warn); color: white;"><td><strong>建議總工時上限</strong></td><td><strong>~18 週</strong></td></tr>
+  </tbody>
+</table>
+
+<!-- =========== 13. Open Questions =========== -->
+<h2 id="open">13. 開放議題</h2>
+
+<h3>已解決議題 (v0.3 落地)</h3>
+<table>
+  <thead><tr><th>議題</th><th>決策</th><th>對應需求</th></tr></thead>
+  <tbody>
+    <tr style="background: var(--sim-soft);"><td>模式切換時殘留資料</td><td>雙帳本完全隔離</td><td>FR-MM-08 ~ 11</td></tr>
+    <tr style="background: var(--sim-soft);"><td>模擬成交價基準</td><td>T+1 開盤價 + 跳空保護</td><td>FR-EX-03 / 06 / 07</td></tr>
+    <tr style="background: var(--sim-soft);"><td>工時與交付策略</td><td>分階段釋出 v1.0 → v1.5 → v2.0</td><td>§12 重構</td></tr>
+  </tbody>
+</table>
+
+<h3>未解決議題</h3>
+<ol>
+  <li>永豐 Shioaji 官方 simulation account 是否整合？或維持兩種模擬並存？</li>
+  <li>CA 憑證每年需更新，是否在 UI 提供提醒？</li>
+  <li>Email 雙向（解析回信更新訊號狀態）— MVP 不做。</li>
+  <li>稅費假設是否提供 UI 可調？</li>
+  <li>多策略並行 — MVP 暫不支援。</li>
+  <li><strong>新聞來源升級時機：</strong>MVP 用免費 RSS / Reddit / EDGAR；何時升級到付費 API？建議 paper 3 個月後評估覆蓋率不足再升級。</li>
+  <li><strong>LLM 模型升級：</strong>預設 claude-haiku-4-5 控制成本；是否提供「重要新聞用 sonnet、其他用 haiku」混合策略？</li>
+  <li><strong>新聞語言：</strong>MVP 僅英文；中文財經新聞（中央社、鉅亨、MoneyDJ）是否納入？需評估 Claude 對中文金融術語的準確度。</li>
+  <li><strong>持倉相關新聞優先：</strong>是否對已持倉標的相關新聞優先分析、即時告警？</li>
+</ol>
+
+<!-- =========================================================
+     UI 設計 Mockup
+============================================================ -->
+<h2 id="ui-dashboard" style="margin-top: 80px;">UI 設計：主控台 (Dashboard)</h2>
+<p>應用程式主畫面。頂欄的<strong>模式切換</strong>是整個系統的安全核心：模擬模式底色綠、實盤模式底色紅且閃爍。</p>
+
+<div class="mockup-section">
+  <h4>模擬模式 (預設啟動畫面)</h4>
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 自動化交易系統 v0.1</div>
+    </div>
+    <div class="app-topbar">
+      <div class="mode-toggle sim">模擬模式 SIMULATION</div>
+      <div class="topbar-status">台股 <strong>盤後</strong> · 美股 <strong>盤中</strong></div>
+      <div class="topbar-status">最近同步 <strong>14:31:02</strong></div>
+      <div class="topbar-right">
+        <div class="icon-btn">⟳ 更新</div>
+        <div class="icon-btn">⚙ 設定</div>
+      </div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="nav-item active"><span class="nav-icon">▣</span> 主控台</div>
+        <div class="nav-item"><span class="nav-icon">📈</span> 圖表</div>
+        <div class="nav-item"><span class="nav-icon">📰</span> 新聞情緒</div>
+        <div class="nav-item"><span class="nav-icon">⚡</span> 策略</div>
+        <div class="nav-item"><span class="nav-icon">📊</span> 回測</div>
+        <div class="nav-item"><span class="nav-icon">📋</span> 訊號日誌</div>
+        <div class="nav-item"><span class="nav-icon">⚙</span> 設定</div>
+      </div>
+      <div class="app-content">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="label">帳戶總值 (Equity)</div>
+            <div class="value">$103,247</div>
+            <div class="delta up">▲ +3.25% 自啟動</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">今日損益</div>
+            <div class="value" style="color: var(--sim);">+$842</div>
+            <div class="delta up">▲ +0.82%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">未實現損益</div>
+            <div class="value">+$2,180</div>
+            <div class="delta">3 個部位</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">勝率 (近 30 筆)</div>
+            <div class="value">62%</div>
+            <div class="delta">Sharpe 1.34</div>
+          </div>
+        </div>
+
+        <div class="row-2col">
+          <div>
+            <div class="section-title">當前持倉</div>
+            <div class="subtabs">
+              <div class="subtab active">全部 (3)</div>
+              <div class="subtab">台股 (1)</div>
+              <div class="subtab">美股 (2)</div>
+            </div>
+            <table class="mockup-table">
+              <thead>
+                <tr><th>標的</th><th>市場</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>損益</th><th>停損</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>QQQ</strong></td>
+                  <td><span class="pill us">美股</span></td>
+                  <td><span class="pill buy">多</span></td>
+                  <td>5</td><td>$487.20</td><td>$492.55</td>
+                  <td style="color: var(--sim);">+$26.75</td>
+                  <td>$472.50</td>
+                </tr>
+                <tr>
+                  <td><strong>SPY</strong></td>
+                  <td><span class="pill us">美股</span></td>
+                  <td><span class="pill buy">多</span></td>
+                  <td>3</td><td>$582.10</td><td>$589.45</td>
+                  <td style="color: var(--sim);">+$22.05</td>
+                  <td>$565.00</td>
+                </tr>
+                <tr>
+                  <td><strong>0050</strong></td>
+                  <td><span class="pill tw">台股</span></td>
+                  <td><span class="pill buy">多</span></td>
+                  <td>1000</td><td>NT$182.5</td><td>NT$185.0</td>
+                  <td style="color: var(--sim);">+NT$2,500</td>
+                  <td>NT$177.0</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="section-title">今日訊號 (Dual Momentum)</div>
+            <table class="mockup-table">
+              <thead><tr><th>時間</th><th>策略</th><th>標的</th><th>建議</th><th>價格</th><th>數量</th><th>狀態</th></tr></thead>
+              <tbody>
+                <tr class="signal-row">
+                  <td>14:30</td><td>Dual Momentum</td>
+                  <td><strong>IWM</strong> <span class="pill us">美股</span></td>
+                  <td><span class="pill buy">買進</span></td>
+                  <td>$215.30</td><td>4 股</td>
+                  <td style="color: var(--warn);">⏳ 待寄信</td>
+                </tr>
+                <tr>
+                  <td>13:25</td><td>Dual Momentum</td>
+                  <td><strong>0056</strong> <span class="pill tw">台股</span></td>
+                  <td><span class="pill sell">賣出</span></td>
+                  <td>NT$38.5</td><td>500 股</td>
+                  <td style="color: var(--sim);">✓ 模擬成交</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div class="section-title">績效曲線 (30 天)</div>
+            <div class="chart-box">
+              <div class="bar" style="height: 30%"></div>
+              <div class="bar" style="height: 40%"></div>
+              <div class="bar" style="height: 35%"></div>
+              <div class="bar" style="height: 55%"></div>
+              <div class="bar" style="height: 50%"></div>
+              <div class="bar" style="height: 65%"></div>
+              <div class="bar" style="height: 60%"></div>
+              <div class="bar" style="height: 70%"></div>
+              <div class="bar" style="height: 55%"></div>
+              <div class="bar" style="height: 75%"></div>
+              <div class="bar" style="height: 80%"></div>
+              <div class="bar" style="height: 70%"></div>
+              <div class="bar" style="height: 85%"></div>
+              <div class="bar" style="height: 78%"></div>
+              <div class="bar" style="height: 90%"></div>
+            </div>
+
+            <div class="section-title">下次自動執行</div>
+            <div style="background: var(--surface); padding: 14px; border-radius: 8px; border: 1px solid var(--border);">
+              <div style="font-size: 12px; color: var(--muted);">台股盤後策略</div>
+              <div style="font-weight: 700; font-size: 18px; margin: 4px 0;">2026-05-26 14:00</div>
+              <div style="font-size: 12px; color: var(--muted); margin-top: 8px;">美股盤後策略</div>
+              <div style="font-weight: 700; font-size: 18px;">2026-05-24 05:30</div>
+            </div>
+
+            <div class="section-title">系統狀態</div>
+            <div style="background: var(--surface); padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px;">
+              <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                <span>Shioaji</span><span style="color: var(--sim);">● 已連線</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                <span>SMTP</span><span style="color: var(--sim);">● 已驗證</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                <span>yfinance</span><span style="color: var(--sim);">● 正常</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                <span>CA 憑證</span><span style="color: var(--warn);">● 87 天後到期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup-section">
+  <h4>實盤模式 (對比畫面)</h4>
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 自動化交易系統 v0.1 [實盤]</div>
+    </div>
+    <div class="app-topbar" style="background: var(--live-soft); border-bottom-color: var(--live);">
+      <div class="mode-toggle live">實盤模式 LIVE</div>
+      <div class="topbar-status" style="color: var(--live); font-weight: 600;">⚠ 真實資金交易中</div>
+      <div class="topbar-status">最近同步 <strong>14:31:02</strong></div>
+      <div class="topbar-right">
+        <div class="icon-btn">⟳ 更新</div>
+        <div class="icon-btn">⚙ 設定</div>
+      </div>
+    </div>
+    <div style="padding: 18px 24px; color: var(--muted); font-size: 13px;">
+      <em>(內容區同上，但所有「模擬」字樣替換為實際成交資訊，操作前需二次確認)</em>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI Settings =========== -->
+<h2 id="ui-settings">UI 設計：設定 (Settings)</h2>
+<p>所有 API 金鑰、SMTP 密碼以 Windows DPAPI 加密儲存。寄送測試信驗證設定正確性。</p>
+<div class="mockup-section">
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 設定</div>
+    </div>
+    <div class="app-topbar">
+      <div class="mode-toggle sim">模擬模式 SIMULATION</div>
+      <div class="topbar-status">設定變更後需重啟生效</div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="nav-item"><span class="nav-icon">▣</span> 主控台</div>
+        <div class="nav-item"><span class="nav-icon">📈</span> 圖表</div>
+        <div class="nav-item"><span class="nav-icon">📰</span> 新聞情緒</div>
+        <div class="nav-item"><span class="nav-icon">⚡</span> 策略</div>
+        <div class="nav-item"><span class="nav-icon">📊</span> 回測</div>
+        <div class="nav-item"><span class="nav-icon">📋</span> 訊號日誌</div>
+        <div class="nav-item active"><span class="nav-icon">⚙</span> 設定</div>
+      </div>
+      <div class="app-content">
+        <h3 style="margin-top: 0;">Shioaji 永豐 API</h3>
+        <div class="form-row">
+          <label>API Key</label>
+          <input type="text" value="••••••••••••••••" />
+        </div>
+        <div class="form-row">
+          <label>Secret Key</label>
+          <input type="password" value="••••••••••••" />
+        </div>
+        <div class="form-row">
+          <label>CA 憑證路徑</label>
+          <input type="text" value="C:\Users\jeff\sinopac_ca.pfx" />
+        </div>
+        <div class="form-row">
+          <label>CA 密碼</label>
+          <input type="password" value="••••••••" />
+        </div>
+        <div class="form-row">
+          <label></label>
+          <div><button class="btn primary">測試連線</button><span class="hint">綠燈表示登入成功</span></div>
+        </div>
+
+        <h3>Email 通知 (SMTP)</h3>
+        <div class="form-row">
+          <label>SMTP Host</label>
+          <input type="text" value="smtp.gmail.com" />
+        </div>
+        <div class="form-row">
+          <label>Port</label>
+          <input type="text" value="587" style="max-width: 100px;" />
+        </div>
+        <div class="form-row">
+          <label>使用者帳號</label>
+          <input type="text" value="gamma.jeff.lin@gmail.com" />
+        </div>
+        <div class="form-row">
+          <label>App Password</label>
+          <input type="password" value="••••••••••••••••" />
+        </div>
+        <div class="form-row">
+          <label>收件人</label>
+          <input type="text" value="gamma.jeff.lin@gmail.com" />
+        </div>
+        <div class="form-row">
+          <label></label>
+          <div><button class="btn primary">寄送測試信</button><span class="hint">驗證收件人收到</span></div>
+        </div>
+
+        <h3>風險控管</h3>
+        <div class="form-row"><label>單筆風險上限</label><input type="text" value="1.0" style="max-width: 100px;" /><span class="hint">%</span></div>
+        <div class="form-row"><label>總持倉上限</label><input type="text" value="80" style="max-width: 100px;" /><span class="hint">%</span></div>
+        <div class="form-row"><label>單日最大虧損</label><input type="text" value="3.0" style="max-width: 100px;" /><span class="hint">% (熔斷)</span></div>
+
+        <h3>模擬模式參數</h3>
+        <div class="form-row"><label>起始資金</label><input type="text" value="100000" /><span class="hint">TWD</span></div>
+        <div class="form-row"><label>美股起始資金</label><input type="text" value="3000" /><span class="hint">USD</span></div>
+        <div class="form-row"><label>假設手續費 (台股)</label><input type="text" value="0.1425" style="max-width: 100px;" /><span class="hint">%</span></div>
+        <div class="form-row"><label>假設手續費 (美股)</label><input type="text" value="0.18" style="max-width: 100px;" /><span class="hint">% (複委託)</span></div>
+        <div class="form-row"><label>假設滑價</label><input type="text" value="0.05" style="max-width: 100px;" /><span class="hint">%</span></div>
+
+        <div style="margin-top: 20px; display: flex; gap: 8px;">
+          <button class="btn primary">儲存設定</button>
+          <button class="btn ghost">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI Backtest =========== -->
+<h2 id="ui-backtest">UI 設計：回測 (Backtest)</h2>
+<div class="mockup-section">
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 回測</div>
+    </div>
+    <div class="app-topbar">
+      <div class="mode-toggle sim">模擬模式 SIMULATION</div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="nav-item"><span class="nav-icon">▣</span> 主控台</div>
+        <div class="nav-item"><span class="nav-icon">📈</span> 圖表</div>
+        <div class="nav-item"><span class="nav-icon">📰</span> 新聞情緒</div>
+        <div class="nav-item"><span class="nav-icon">⚡</span> 策略</div>
+        <div class="nav-item active"><span class="nav-icon">📊</span> 回測</div>
+        <div class="nav-item"><span class="nav-icon">📋</span> 訊號日誌</div>
+        <div class="nav-item"><span class="nav-icon">⚙</span> 設定</div>
+      </div>
+      <div class="app-content">
+        <div style="display: grid; grid-template-columns: 280px 1fr; gap: 20px;">
+          <div>
+            <div class="section-title">回測參數</div>
+            <div style="background: var(--surface); padding: 14px; border-radius: 8px; border: 1px solid var(--border);">
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>策略</label><select><option>Dual Momentum</option></select></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>起始日期</label><input type="date" value="2016-01-01" /></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>結束日期</label><input type="date" value="2026-05-22" /></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>初始資金 (USD)</label><input type="text" value="10000" /></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>標的池</label><input type="text" value="SPY,QQQ,IWM,EFA,VNQ,TLT" /></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>回看期 (天)</label><input type="text" value="252" /></div>
+              <div class="form-row" style="grid-template-columns: 1fr;"><label>持倉檔數</label><input type="text" value="2" /></div>
+              <div style="margin-top: 12px;">
+                <button class="btn primary" style="width: 100%;">▶ 執行回測</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="section-title">績效指標</div>
+            <div class="kpi-grid">
+              <div class="kpi-card"><div class="label">年化報酬</div><div class="value" style="color: var(--sim);">12.4%</div></div>
+              <div class="kpi-card"><div class="label">最大回撤</div><div class="value" style="color: var(--live);">-18.2%</div></div>
+              <div class="kpi-card"><div class="label">Sharpe</div><div class="value">1.05</div></div>
+              <div class="kpi-card"><div class="label">勝率</div><div class="value">58%</div></div>
+            </div>
+            <div class="section-title">績效曲線 (vs SPY)</div>
+            <div class="chart-box" style="height: 280px;">
+              <div class="bar" style="height: 20%"></div>
+              <div class="bar" style="height: 28%"></div>
+              <div class="bar" style="height: 25%"></div>
+              <div class="bar" style="height: 35%"></div>
+              <div class="bar" style="height: 30%"></div>
+              <div class="bar" style="height: 45%"></div>
+              <div class="bar" style="height: 50%"></div>
+              <div class="bar" style="height: 42%"></div>
+              <div class="bar" style="height: 38%"></div>
+              <div class="bar" style="height: 55%"></div>
+              <div class="bar" style="height: 65%"></div>
+              <div class="bar" style="height: 58%"></div>
+              <div class="bar" style="height: 70%"></div>
+              <div class="bar" style="height: 78%"></div>
+              <div class="bar" style="height: 72%"></div>
+              <div class="bar" style="height: 85%"></div>
+              <div class="bar" style="height: 80%"></div>
+              <div class="bar" style="height: 92%"></div>
+              <div class="bar" style="height: 88%"></div>
+              <div class="bar" style="height: 95%"></div>
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              <button class="btn ghost">匯出 CSV</button>
+              <button class="btn ghost">匯出 PNG</button>
+              <button class="btn ghost">儲存為基準</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI Mode Dialog =========== -->
+<h2 id="ui-mode-dialog">UI 設計：模式切換確認對話框</h2>
+<p>從模擬切換到實盤的<strong>關鍵安全機制</strong>：要求輸入字串、顯示警告、驗證連線。</p>
+<div class="mockup-section">
+  <div class="dialog">
+    <h3>⚠ 切換到實盤模式</h3>
+    <p style="margin: 8px 0;">你即將從<strong style="color: var(--sim);">模擬模式</strong>切換到<strong style="color: var(--live);">實盤模式 (LIVE)</strong>。</p>
+    <div class="callout danger" style="margin: 12px 0;">
+      <strong>實盤模式下：</strong><br>
+      • 所有台股訊號將透過 Shioaji 真實下單<br>
+      • 美股訊號將寄出至 <code>gamma.jeff.lin@gmail.com</code><br>
+      • 真實資金可能因策略失誤而虧損
+    </div>
+    <p style="font-size: 13px; color: var(--muted);">請輸入 <code>LIVE</code> 確認：</p>
+    <input type="text" placeholder="輸入 LIVE" style="width: 100%; padding: 10px; border: 2px solid var(--live); border-radius: 6px; font-family: monospace; font-size: 14px;" />
+    <div style="margin-top: 12px; font-size: 12px; color: var(--muted);">
+      <span style="color: var(--sim);">✓</span> Shioaji 連線可用<br>
+      <span style="color: var(--sim);">✓</span> CA 憑證有效（87 天後到期）<br>
+      <span style="color: var(--sim);">✓</span> SMTP 設定可用
+    </div>
+    <div class="actions">
+      <button class="btn ghost">取消</button>
+      <button class="btn danger">確認切換到實盤</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI Email =========== -->
+<h2 id="ui-email">UI 設計：Email 通知範例</h2>
+<p>美股訊號通知。模擬模式信件主旨顯示 <code>[SIM]</code>，實盤顯示 <code>[LIVE]</code>。</p>
+<div class="mockup-section">
+  <div class="email-preview">
+    <div class="email-header">
+      <div class="from">寄件人：StocksTrading Bot &lt;gamma.jeff.lin@gmail.com&gt;</div>
+      <div class="subj"><span class="badge sim" style="margin-right: 6px;">SIM</span>美股訊號 - 2026-05-23 - 買進 QQQ</div>
+      <div style="font-size: 12px; color: var(--muted);">收件：gamma.jeff.lin@gmail.com &nbsp;·&nbsp; 14:32 PM</div>
+    </div>
+    <div class="email-body">
+      <p>策略 <strong>Dual Momentum</strong> 於 2026-05-23 產生以下訊號，請於下個美股交易時段執行：</p>
+
+      <div class="signal-card">
+        <h3 style="margin: 0 0 10px;">買進 QQQ (Invesco QQQ Trust)</h3>
+        <div class="info-row"><span class="k">建議價格</span><span class="v">$492.55</span></div>
+        <div class="info-row"><span class="k">建議數量</span><span class="v">5 股</span></div>
+        <div class="info-row"><span class="k">建議停損</span><span class="v" style="color: var(--live);">$472.50 (-4.1%)</span></div>
+        <div class="info-row"><span class="k">部位風險</span><span class="v">$100.25 (帳戶 1.0%)</span></div>
+        <div class="info-row"><span class="k">執行截止</span><span class="v">2026-05-24 美股開盤後 30 分鐘內</span></div>
+      </div>
+
+      <p style="margin: 14px 0 6px;"><strong>策略原因：</strong></p>
+      <ul style="margin: 0 0 12px; padding-left: 20px; font-size: 13px;">
+        <li>QQQ 過去 252 日累積報酬 +28.4%，在標的池中排名第 1</li>
+        <li>絕對動能 28.4% &gt; 門檻 4%，通過絕對動能篩選</li>
+        <li>原持倉 SPY 排名下滑至第 3，建議減碼換 QQQ</li>
+      </ul>
+
+      <p style="margin: 14px 0 6px;"><strong>當前持倉狀態：</strong></p>
+      <table class="mockup-table" style="font-size: 12px;">
+        <thead><tr><th>標的</th><th>數量</th><th>均價</th><th>未實現損益</th></tr></thead>
+        <tbody>
+          <tr><td>SPY</td><td>3</td><td>$582.10</td><td style="color: var(--sim);">+$22.05</td></tr>
+          <tr><td>VNQ</td><td>10</td><td>$89.50</td><td style="color: var(--live);">-$5.20</td></tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 20px; padding: 12px; background: var(--code-bg); border-radius: 6px; font-size: 12px; color: var(--muted);">
+        <strong>下單檢核清單 (請在永豐 APP 操作):</strong><br>
+        ☐ 確認標的代碼 QQQ<br>
+        ☐ 確認數量 5 股、價格 ≤ $492.55<br>
+        ☐ 下單成功後請於 APP 額外掛停損單 $472.50<br>
+        ☐ 完成後可忽略本信，系統會在下個交易日自動同步持倉狀態
+      </div>
+
+      <p style="margin-top: 20px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px;">
+        StocksTrading v0.2 · 模擬模式 · 本訊號不構成投資建議，過去績效不代表未來
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI K-line Chart =========== -->
+<h2 id="ui-chart">UI 設計：K 線圖表分頁 <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h2>
+<p>點選任一持倉、Watchlist 標的或自行搜尋，進入完整 K 線分析。指標可勾選疊加，自動偵測形態以標籤標示於圖上。</p>
+
+<div class="mockup-section">
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 圖表 / QQQ</div>
+    </div>
+    <div class="app-topbar">
+      <div class="mode-toggle sim">模擬模式 SIMULATION</div>
+      <div class="topbar-status">QQQ · Invesco QQQ Trust · <strong>$492.55</strong> <span style="color: var(--candle-up);">+1.10%</span></div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="nav-item"><span class="nav-icon">▣</span> 主控台</div>
+        <div class="nav-item active"><span class="nav-icon">📈</span> 圖表</div>
+        <div class="nav-item"><span class="nav-icon">📰</span> 新聞情緒</div>
+        <div class="nav-item"><span class="nav-icon">⚡</span> 策略</div>
+        <div class="nav-item"><span class="nav-icon">📊</span> 回測</div>
+        <div class="nav-item"><span class="nav-icon">📋</span> 訊號日誌</div>
+        <div class="nav-item"><span class="nav-icon">⚙</span> 設定</div>
+      </div>
+      <div class="app-content">
+        <!-- top control bar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <input type="text" value="QQQ" style="padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-family: monospace; width: 120px;" />
+            <div class="timeframe-tabs">
+              <div class="tf">1m</div>
+              <div class="tf">60m</div>
+              <div class="tf active">日</div>
+              <div class="tf">週</div>
+              <div class="tf">月</div>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: var(--muted);">資料更新：2026-05-23 14:31 · <span style="color: var(--warn);">非交易訊號，僅供參考</span></div>
+        </div>
+
+        <!-- indicator toggles -->
+        <div class="indicator-bar">
+          <div class="indicator-chip active">MA5</div>
+          <div class="indicator-chip active">MA20</div>
+          <div class="indicator-chip active">MA60</div>
+          <div class="indicator-chip">MA200</div>
+          <div class="indicator-chip">布林通道</div>
+          <div class="indicator-chip active">成交量</div>
+          <div class="indicator-chip">RSI</div>
+          <div class="indicator-chip">MACD</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 280px; gap: 14px;">
+          <div>
+            <!-- K-line chart -->
+            <div class="kline-wrap">
+              <div class="ma-legend">
+                <span><span class="dot" style="background: var(--ma5);"></span>MA5</span>
+                <span><span class="dot" style="background: var(--ma20);"></span>MA20</span>
+                <span><span class="dot" style="background: var(--ma60);"></span>MA60</span>
+              </div>
+              <div class="kline-area">
+                <div class="kline-grid">
+                  <div class="gline" style="top: 0%;"></div>
+                  <div class="gline" style="top: 25%;"></div>
+                  <div class="gline" style="top: 50%;"></div>
+                  <div class="gline" style="top: 75%;"></div>
+                  <div class="gline" style="top: 100%;"></div>
+                </div>
+                <div class="kline-yaxis">
+                  <span style="top: 0%;">$135</span>
+                  <span style="top: 25%;">$125</span>
+                  <span style="top: 50%;">$115</span>
+                  <span style="top: 75%;">$105</span>
+                  <span style="top: 100%;">$95</span>
+                </div>
+                <div class="candles">
+                  <!-- 20 candles representing uptrend -->
+                  <div class="candle up"><div class="wick" style="top:80%;height:10%;"></div><div class="body" style="top:82.5%;height:5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:75%;height:10%;"></div><div class="body" style="top:77.5%;height:5%;"></div></div>
+                  <div class="candle down"><div class="wick" style="top:75%;height:7.5%;"></div><div class="body" style="top:77.5%;height:2.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:72.5%;height:10%;"></div><div class="body" style="top:75%;height:5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:65%;height:12.5%;"></div><div class="body" style="top:67.5%;height:7.5%;"></div></div>
+                  <div class="candle down"><div class="wick" style="top:65%;height:7.5%;"></div><div class="body" style="top:67.5%;height:2.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:60%;height:12.5%;"></div><div class="body" style="top:62.5%;height:7.5%;"></div></div>
+                  <div class="candle up" style="position: relative;">
+                    <div class="wick" style="top:52.5%;height:12.5%;"></div>
+                    <div class="body" style="top:55%;height:7.5%;"></div>
+                    <div class="pattern-marker gold" style="top:52%; left:50%;">↑ 黃金叉</div>
+                  </div>
+                  <div class="candle down"><div class="wick" style="top:52.5%;height:7.5%;"></div><div class="body" style="top:55%;height:2.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:47.5%;height:12.5%;"></div><div class="body" style="top:50%;height:7.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:42.5%;height:10%;"></div><div class="body" style="top:45%;height:5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:35%;height:12.5%;"></div><div class="body" style="top:37.5%;height:7.5%;"></div></div>
+                  <div class="candle down"><div class="wick" style="top:35%;height:10%;"></div><div class="body" style="top:37.5%;height:5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:32.5%;height:12.5%;"></div><div class="body" style="top:35%;height:7.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:25%;height:12.5%;"></div><div class="body" style="top:27.5%;height:7.5%;"></div></div>
+                  <div class="candle down"><div class="wick" style="top:25%;height:10%;"></div><div class="body" style="top:27.5%;height:5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:22.5%;height:12.5%;"></div><div class="body" style="top:25%;height:7.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:15%;height:12.5%;"></div><div class="body" style="top:17.5%;height:7.5%;"></div></div>
+                  <div class="candle up"><div class="wick" style="top:10%;height:10%;"></div><div class="body" style="top:12.5%;height:5%;"></div></div>
+                  <div class="candle up" style="position: relative;">
+                    <div class="wick" style="top:2.5%;height:12.5%;"></div>
+                    <div class="body" style="top:5%;height:7.5%;"></div>
+                    <div class="pattern-marker volume" style="top:2%; left:50%;">爆量</div>
+                  </div>
+                </div>
+                <!-- MA overlay -->
+                <svg class="ma-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <path class="ma5" d="M 2.5,84 L 7.5,78 L 12.5,77 L 17.5,73 L 22.5,68 L 27.5,67 L 32.5,62 L 37.5,55 L 42.5,55 L 47.5,49 L 52.5,44 L 57.5,38 L 62.5,40 L 67.5,35 L 72.5,28 L 77.5,30 L 82.5,25 L 87.5,18 L 92.5,12 L 97.5,5" />
+                  <path class="ma20" d="M 2.5,88 L 7.5,86 L 12.5,84 L 17.5,82 L 22.5,78 L 27.5,76 L 32.5,72 L 37.5,67 L 42.5,63 L 47.5,58 L 52.5,53 L 57.5,48 L 62.5,46 L 67.5,42 L 72.5,37 L 77.5,34 L 82.5,30 L 87.5,24 L 92.5,18 L 97.5,12" />
+                  <path class="ma60" d="M 2.5,90 L 22.5,86 L 42.5,75 L 62.5,60 L 82.5,45 L 97.5,30" />
+                </svg>
+              </div>
+              <!-- Volume -->
+              <div class="vol-area">
+                <div class="vol-bar up" style="height: 45%;"></div>
+                <div class="vol-bar up" style="height: 50%;"></div>
+                <div class="vol-bar down" style="height: 40%;"></div>
+                <div class="vol-bar up" style="height: 60%;"></div>
+                <div class="vol-bar up" style="height: 70%;"></div>
+                <div class="vol-bar down" style="height: 45%;"></div>
+                <div class="vol-bar up" style="height: 60%;"></div>
+                <div class="vol-bar up hot" style="height: 78%;"></div>
+                <div class="vol-bar down" style="height: 50%;"></div>
+                <div class="vol-bar up" style="height: 65%;"></div>
+                <div class="vol-bar up" style="height: 55%;"></div>
+                <div class="vol-bar up hot" style="height: 82%;"></div>
+                <div class="vol-bar down" style="height: 50%;"></div>
+                <div class="vol-bar up" style="height: 65%;"></div>
+                <div class="vol-bar up" style="height: 72%;"></div>
+                <div class="vol-bar down" style="height: 45%;"></div>
+                <div class="vol-bar up" style="height: 62%;"></div>
+                <div class="vol-bar up" style="height: 78%;"></div>
+                <div class="vol-bar up" style="height: 60%;"></div>
+                <div class="vol-bar up hot" style="height: 95%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right panel: pattern detections + ticker info -->
+          <div>
+            <div class="section-title">當前指標</div>
+            <table class="mockup-table" style="font-size: 12px;">
+              <tbody>
+                <tr><td>RSI(14)</td><td style="text-align: right; font-family: monospace;">68.5</td><td style="color: var(--warn); font-size: 11px;">接近超買</td></tr>
+                <tr><td>MACD</td><td style="text-align: right; font-family: monospace; color: var(--candle-up);">+1.85</td><td style="color: var(--candle-up); font-size: 11px;">多頭</td></tr>
+                <tr><td>布林位置</td><td style="text-align: right; font-family: monospace;">0.82σ</td><td style="font-size: 11px;">中上軌</td></tr>
+                <tr><td>20日均量比</td><td style="text-align: right; font-family: monospace; color: var(--warn);">2.15x</td><td style="color: var(--warn); font-size: 11px;">爆量</td></tr>
+              </tbody>
+            </table>
+
+            <div class="section-title">近期形態提示</div>
+            <div style="font-size: 11px; color: var(--muted); margin-bottom: 6px;">⚠ 僅供參考，非交易訊號</div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 6px; border-left: 3px solid var(--candle-up);">
+              <div style="font-weight: 600; font-size: 12.5px;">▲ 黃金交叉 (MA5 上穿 MA20)</div>
+              <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">2026-05-15 · 距今 6 個交易日</div>
+            </div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 6px; border-left: 3px solid var(--warn);">
+              <div style="font-weight: 600; font-size: 12.5px;">⚡ 成交量爆量</div>
+              <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">2026-05-23 · 今日 · 2.15x 平均</div>
+            </div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 6px; border-left: 3px solid var(--warn);">
+              <div style="font-weight: 600; font-size: 12.5px;">⚠ RSI 接近超買區</div>
+              <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">RSI = 68.5，臨界 70</div>
+            </div>
+
+            <div class="section-title">策略動作</div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px;">
+              <div style="margin-bottom: 4px;"><span style="color: var(--candle-up);">●</span> 持有中 · 5 股 @ $487.20</div>
+              <div style="color: var(--muted);">停損 $472.50 · 距現價 -4.1%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI News & Watchlist =========== -->
+<h2 id="ui-news">UI 設計：新聞情緒分頁 <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h2>
+<p>每日 LLM 分析後的新聞 feed、排序後的選股候選清單、Watchlist 兩段核可流程。</p>
+
+<div class="mockup-section">
+  <div class="mockup-frame">
+    <div class="mockup-titlebar">
+      <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      <div class="title">StocksTrading — 新聞情緒</div>
+    </div>
+    <div class="app-topbar">
+      <div class="mode-toggle sim">模擬模式 SIMULATION</div>
+      <div class="topbar-status">最近抓取 <strong>06:00</strong> · <strong>87 篇</strong> 新聞 · 分析 <strong>24 篇</strong></div>
+    </div>
+    <div class="app-body">
+      <div class="app-sidebar">
+        <div class="nav-item"><span class="nav-icon">▣</span> 主控台</div>
+        <div class="nav-item"><span class="nav-icon">📈</span> 圖表</div>
+        <div class="nav-item active"><span class="nav-icon">📰</span> 新聞情緒</div>
+        <div class="nav-item"><span class="nav-icon">⚡</span> 策略</div>
+        <div class="nav-item"><span class="nav-icon">📊</span> 回測</div>
+        <div class="nav-item"><span class="nav-icon">📋</span> 訊號日誌</div>
+        <div class="nav-item"><span class="nav-icon">⚙</span> 設定</div>
+      </div>
+      <div class="app-content">
+        <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px;">
+          <!-- Left: News feed -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <div class="section-title" style="margin: 0;">今日新聞 (24 篇分析)</div>
+              <div style="font-size: 11px; color: var(--muted);">來源：CNBC · Reuters · TechCrunch · Reddit · EDGAR</div>
+            </div>
+            <div class="news-feed">
+
+              <div class="news-card nc-strong">
+                <div class="nc-header">
+                  <span>CNBC · 14:32</span>
+                  <span style="display: flex; gap: 4px; align-items: center;">影響 <span class="impact-bar"><span class="fill" style="width: 90%;"></span></span> 9.0</span>
+                </div>
+                <div class="nc-title">Nvidia beats Q1 earnings; data-center revenue jumps 87% YoY, raises FY guidance</div>
+                <div class="nc-summary">Earnings beat expectations on both top & bottom line. Hyperscaler demand reaffirmed. Guidance raised significantly.</div>
+                <div class="nc-meta">
+                  <span class="pill us">NVDA</span>
+                  <span class="pill buy">看多</span>
+                  <span class="badge sim">強訊號 (4 來源)</span>
+                  <span style="color: var(--muted);">情緒 +0.92</span>
+                </div>
+              </div>
+
+              <div class="news-card nc-strong">
+                <div class="nc-header">
+                  <span>Reuters · 13:50</span>
+                  <span style="display: flex; gap: 4px; align-items: center;">影響 <span class="impact-bar"><span class="fill" style="width: 85%;"></span></span> 8.5</span>
+                </div>
+                <div class="nc-title">AMD unveils MI400 AI accelerator targeting Nvidia's H200; first shipments Q3</div>
+                <div class="nc-summary">Direct competitive threat to NVDA, but AMD share could expand. Analyst upgrades expected.</div>
+                <div class="nc-meta">
+                  <span class="pill us">AMD</span>
+                  <span class="pill buy">看多</span>
+                  <span class="badge sim">強訊號 (3 來源)</span>
+                  <span style="color: var(--muted);">情緒 +0.78</span>
+                </div>
+              </div>
+
+              <div class="news-card nc-strong-bear">
+                <div class="nc-header">
+                  <span>Ars Technica · 12:15</span>
+                  <span style="display: flex; gap: 4px; align-items: center;">影響 <span class="impact-bar"><span class="fill" style="width: 72%;"></span></span> 7.2</span>
+                </div>
+                <div class="nc-title">FTC opens antitrust probe into Meta's VR acquisitions</div>
+                <div class="nc-summary">Regulatory overhang could weigh on stock; precedent from Google case may extend to multi-year delay.</div>
+                <div class="nc-meta">
+                  <span class="pill us">META</span>
+                  <span class="pill sell">看空</span>
+                  <span class="badge live">強訊號 (3 來源)</span>
+                  <span style="color: var(--muted);">情緒 -0.65</span>
+                </div>
+              </div>
+
+              <div class="news-card">
+                <div class="nc-header">
+                  <span>TechCrunch · 11:40</span>
+                  <span style="display: flex; gap: 4px; align-items: center;">影響 <span class="impact-bar"><span class="fill" style="width: 55%;"></span></span> 5.5</span>
+                </div>
+                <div class="nc-title">Apple delays Vision Pro 2 to 2027, prioritizing cheaper "Vision Air"</div>
+                <div class="nc-summary">Strategy shift acknowledges Vision Pro sales miss; could pressure short-term narrative.</div>
+                <div class="nc-meta">
+                  <span class="pill us">AAPL</span>
+                  <span class="pill hold">中性</span>
+                  <span style="background: var(--code-bg); padding: 2px 8px; border-radius: 10px; font-size: 11px;">弱訊號 (1 來源)</span>
+                </div>
+              </div>
+
+              <div class="news-card">
+                <div class="nc-header">
+                  <span>SEC EDGAR · 10:05</span>
+                  <span style="display: flex; gap: 4px; align-items: center;">影響 <span class="impact-bar"><span class="fill" style="width: 48%;"></span></span> 4.8</span>
+                </div>
+                <div class="nc-title">Tesla 8-K: CFO transition announced</div>
+                <div class="nc-summary">Executive change without clear succession plan; historically TSLA volatility increased post such filings.</div>
+                <div class="nc-meta">
+                  <span class="pill us">TSLA</span>
+                  <span class="pill hold">中性</span>
+                  <span style="background: var(--code-bg); padding: 2px 8px; border-radius: 10px; font-size: 11px;">弱訊號 (2 來源)</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Right: Watchlist + Cost meter -->
+          <div>
+            <div class="cost-meter">
+              <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                <span style="color: var(--muted);">今日 LLM 成本</span>
+                <span style="font-weight: 700; font-family: monospace;">$0.18 / $0.30</span>
+              </div>
+              <div class="bar"><div class="fill" style="width: 60%;"></div></div>
+              <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">claude-haiku-4-5 · 24 篇分析 · 預估今日尚可 ≈ 16 篇</div>
+            </div>
+
+            <div class="section-title">候選清單 (Watchlist) — 待核可</div>
+
+            <div class="watch-card strong">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                  <div style="font-weight: 700; font-size: 16px;">NVDA <span class="pill us" style="font-size: 11px;">美股</span> <span class="pill buy">買進</span></div>
+                  <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">綜合分數 8.6 · 強訊號 · 4 個獨立來源</div>
+                </div>
+                <span class="sparkline">
+                  <span class="sl" style="height: 30%;"></span><span class="sl" style="height: 45%;"></span>
+                  <span class="sl" style="height: 38%;"></span><span class="sl" style="height: 55%;"></span>
+                  <span class="sl" style="height: 60%;"></span><span class="sl" style="height: 75%;"></span>
+                  <span class="sl" style="height: 70%;"></span><span class="sl" style="height: 85%;"></span>
+                </span>
+              </div>
+              <div style="font-size: 12px; color: var(--text); margin-top: 6px;">
+                財報超預期 + 資料中心營收 +87% YoY + 上調全年指引
+              </div>
+              <div class="watch-actions">
+                <button class="btn-mini primary">→ 轉為交易訊號</button>
+                <button class="btn-mini">查看 K 線</button>
+                <button class="btn-mini">查看原文 (4)</button>
+                <button class="btn-mini">忽略</button>
+              </div>
+            </div>
+
+            <div class="watch-card strong">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                  <div style="font-weight: 700; font-size: 16px;">AMD <span class="pill us" style="font-size: 11px;">美股</span> <span class="pill buy">買進</span></div>
+                  <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">綜合分數 7.8 · 強訊號 · 3 個獨立來源</div>
+                </div>
+                <span class="sparkline">
+                  <span class="sl" style="height: 40%;"></span><span class="sl" style="height: 50%;"></span>
+                  <span class="sl" style="height: 45%;"></span><span class="sl" style="height: 60%;"></span>
+                  <span class="sl" style="height: 65%;"></span><span class="sl" style="height: 70%;"></span>
+                  <span class="sl" style="height: 75%;"></span><span class="sl" style="height: 82%;"></span>
+                </span>
+              </div>
+              <div style="font-size: 12px; margin-top: 6px;">
+                MI400 發表 · 切入 NVDA 市場 · 分析師預期上調
+              </div>
+              <div class="watch-actions">
+                <button class="btn-mini primary">→ 轉為交易訊號</button>
+                <button class="btn-mini">查看 K 線</button>
+                <button class="btn-mini">查看原文 (3)</button>
+                <button class="btn-mini">忽略</button>
+              </div>
+            </div>
+
+            <div class="watch-card" style="border-left: 4px solid var(--live);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                  <div style="font-weight: 700; font-size: 16px;">META <span class="pill us" style="font-size: 11px;">美股</span> <span class="pill sell">減碼</span></div>
+                  <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">綜合分數 6.5 · 強訊號 · 3 個獨立來源</div>
+                </div>
+                <span class="sparkline">
+                  <span class="sl dn" style="height: 85%;"></span><span class="sl dn" style="height: 78%;"></span>
+                  <span class="sl dn" style="height: 70%;"></span><span class="sl" style="height: 72%;"></span>
+                  <span class="sl dn" style="height: 65%;"></span><span class="sl dn" style="height: 60%;"></span>
+                  <span class="sl dn" style="height: 55%;"></span><span class="sl dn" style="height: 48%;"></span>
+                </span>
+              </div>
+              <div style="font-size: 12px; margin-top: 6px;">
+                FTC 反壟斷調查啟動 · 監管不確定性
+              </div>
+              <div class="watch-actions">
+                <button class="btn-mini primary">→ 轉為交易訊號</button>
+                <button class="btn-mini">查看 K 線</button>
+                <button class="btn-mini">查看原文 (3)</button>
+                <button class="btn-mini">忽略</button>
+              </div>
+            </div>
+
+            <div style="font-size: 11px; color: var(--muted); text-align: center; margin-top: 12px; padding: 8px; border: 1px dashed var(--border); border-radius: 6px;">
+              還有 7 個弱訊號候選未顯示 · <a href="#" style="color: var(--primary);">顯示全部</a><br>
+              <em>核可後仍需通過 RiskGuard 與單筆風險檢查</em>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========== UI Daily News Digest Email =========== -->
+<h2 id="ui-news-email">UI 設計：每日新聞 Digest Email <span class="badge p0" style="background: var(--live-soft); color: var(--live);">NEW</span></h2>
+<p>每日盤後寄出的選股建議摘要。Top 10 候選、含買賣方向、影響分、來源數，強訊號醒目色標示。</p>
+
+<div class="mockup-section">
+  <div class="email-preview">
+    <div class="email-header">
+      <div class="from">寄件人：StocksTrading Bot &lt;gamma.jeff.lin@gmail.com&gt;</div>
+      <div class="subj"><span class="badge sim" style="margin-right: 6px;">SIM</span>新聞情緒摘要 - 2026-05-23 - 5 強訊號 / 12 候選 / $0.18</div>
+      <div style="font-size: 12px; color: var(--muted);">14:35 PM · LLM: claude-haiku-4-5</div>
+    </div>
+    <div class="email-body">
+      <p>今日蒐集 <strong>87 篇</strong>新聞、分析 <strong>24 篇</strong>，產出 <strong>5 強訊號 / 12 候選</strong>。請進入「新聞情緒」分頁核可。</p>
+
+      <h3 style="margin: 14px 0 6px; color: var(--candle-up);">▲ 看多候選 (Top 3 強訊號)</h3>
+
+      <table class="mockup-table" style="font-size: 12px;">
+        <thead><tr><th>標的</th><th>分數</th><th>來源</th><th>催化劑</th></tr></thead>
+        <tbody>
+          <tr style="background: var(--sim-soft);">
+            <td><strong>NVDA</strong> <span class="pill buy">買進</span></td>
+            <td>8.6</td>
+            <td>4 來源 · CNBC, Reuters, Bloomberg, Reddit</td>
+            <td>Q1 財報超預期、資料中心 +87% YoY、上調全年指引</td>
+          </tr>
+          <tr style="background: var(--sim-soft);">
+            <td><strong>AMD</strong> <span class="pill buy">買進</span></td>
+            <td>7.8</td>
+            <td>3 來源 · Reuters, CNBC, TechCrunch</td>
+            <td>MI400 AI 加速器發表、Q3 出貨、直接挑戰 NVDA H200</td>
+          </tr>
+          <tr>
+            <td>SMCI <span class="pill buy">買進</span></td>
+            <td>6.9</td>
+            <td>3 來源</td>
+            <td>受惠 NVDA / AMD 上游需求、Liquid cooling 訂單能見度提升</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin: 14px 0 6px; color: var(--candle-down);">▼ 看空 / 風險候選</h3>
+
+      <table class="mockup-table" style="font-size: 12px;">
+        <thead><tr><th>標的</th><th>分數</th><th>來源</th><th>風險</th></tr></thead>
+        <tbody>
+          <tr style="background: var(--live-soft);">
+            <td><strong>META</strong> <span class="pill sell">減碼</span></td>
+            <td>6.5</td>
+            <td>3 來源 · Ars Technica, Reuters, Bloomberg</td>
+            <td>FTC 反壟斷調查啟動、監管不確定性</td>
+          </tr>
+          <tr style="background: var(--live-soft);">
+            <td>TSLA <span class="pill sell">減碼</span></td>
+            <td>6.2</td>
+            <td>3 來源</td>
+            <td>CFO 異動 (SEC 8-K)、無清晰繼任計畫</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="signal-card" style="background: #fffbeb; border-left-color: var(--warn); margin-top: 14px;">
+        <strong>⚠ 注意事項</strong>
+        <ul style="margin: 4px 0; padding-left: 20px; font-size: 12.5px;">
+          <li>所有候選需於 GUI「新聞情緒」分頁手動核可才會下單</li>
+          <li>強訊號 = 至少 3 個獨立可信來源；弱訊號 = 1 個來源（謹慎評估）</li>
+          <li>本摘要不構成投資建議；LLM 可能誤判，請交叉驗證 K 線與技術指標</li>
+        </ul>
+      </div>
+
+      <div style="margin-top: 14px; padding: 10px; background: var(--code-bg); border-radius: 6px; font-size: 12px;">
+        <strong>📊 7 個弱訊號候選未列入摘要：</strong>
+        AAPL, GOOG, MSFT, AMZN, COIN, PLTR, SHOP
+      </div>
+
+      <div style="margin-top: 14px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px;">
+        💰 今日 LLM 成本累計 $0.18 / 上限 $0.30 (60%)<br>
+        StocksTrading v0.2 · 模擬模式 · 本摘要不構成投資建議
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+StocksTrading 需求文件 v0.2 · 2026-05-23 · 本文件為內部規劃用途 · 右上角按鈕可切換深色 / 明亮版
+</div>
+
+</main>
+</div>
+</body>
+</html>
