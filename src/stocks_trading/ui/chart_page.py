@@ -37,13 +37,20 @@ from stocks_trading.ui.widgets.kline_chart import KLineChart
 from stocks_trading.ui.widgets.subplots import MACDPlot, RSIPlot, VolumeBars
 
 ChartDataFetcher = Callable[[Symbol, date, date], list[Bar]]
+ProviderLabelFn = Callable[[], str]
 
 
 class ChartPage(QWidget):
-    def __init__(self, *, data_fetcher: ChartDataFetcher | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        data_fetcher: ChartDataFetcher | None = None,
+        provider_label_fn: ProviderLabelFn | None = None,
+    ) -> None:
         super().__init__()
         self.setObjectName("surface")
         self._data_fetcher = data_fetcher
+        self._provider_label_fn = provider_label_fn
         self._bars: list[Bar] = []
         self._pattern_detector = PatternDetector()
 
@@ -144,16 +151,23 @@ class ChartPage(QWidget):
             bars = self._data_fetcher(symbol, start, end)
         except Exception as exc:
             self._status_label.setText(f"✗ 抓取失敗：{exc}")
+            self._render([])  # 清掉前一次圖避免誤導
             return
 
         if not bars:
             self._status_label.setText(
                 f"✗ {symbol} 在 {start} ~ {end} 區間無資料 (確認代碼 / 日期)"
             )
+            self._render([])
             return
 
+        provider_note = ""
+        if self._provider_label_fn is not None:
+            provider_note = f" via {self._provider_label_fn()}"
         self._render(bars)
-        self._status_label.setText(f"✓ {symbol} 載入 {len(bars)} 根 bar")
+        self._status_label.setText(
+            f"✓ {symbol} 載入 {len(bars)} 根 bar{provider_note}"
+        )
 
     def _render(self, bars: list[Bar]) -> None:
         self._bars = list(bars)

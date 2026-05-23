@@ -105,7 +105,10 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
     pages: dict[PageId, QWidget] = {
         PageId.DASHBOARD: dashboard,
-        PageId.CHART: ChartPage(data_fetcher=chart_fetcher),
+        PageId.CHART: ChartPage(
+            data_fetcher=chart_fetcher,
+            provider_label_fn=router.last_provider_used,
+        ),
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),
         PageId.SIGNAL_LOG: SignalLogPage(),

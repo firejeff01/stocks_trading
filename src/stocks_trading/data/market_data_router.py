@@ -31,10 +31,22 @@ class MarketDataRouter:
         self._last_used: str = ""
 
     def fetch_bars(self, symbol: Symbol, start: date, end: date) -> list[Bar]:
+        # TW 優先 Shioaji；失敗或回空時 fallback yfinance
         if symbol.market is Market.TW and self._can_use_shioaji():
-            self._last_used = "shioaji"
             assert self._shioaji is not None  # mypy
-            return self._shioaji.fetch_bars(symbol, start, end)
+            try:
+                bars = self._shioaji.fetch_bars(symbol, start, end)
+                if bars:
+                    self._last_used = "shioaji"
+                    return bars
+                # Shioaji 回空 (常見：minute kbars 範圍太長被 truncate)
+                # → fallback yfinance
+            except Exception:
+                # 任何 Shioaji 例外 → fallback yfinance
+                pass
+            self._last_used = "yfinance (Shioaji fallback)"
+            return self._yfinance.fetch_bars(symbol, start, end)
+
         self._last_used = "yfinance"
         return self._yfinance.fetch_bars(symbol, start, end)
 

@@ -86,6 +86,37 @@ class TestRouting:
         assert len(bars) == 1
 
 
+class TestShioajiFallback:
+    def test_tw_falls_back_when_shioaji_returns_empty(self) -> None:
+        # Shioaji 已登入但回空 (minute kbars 範圍太長被 truncate 常見情況)
+        sj = MagicMock()
+        sj.is_logged_in.return_value = True
+        sj.fetch_bars.return_value = []
+        yf = MagicMock()
+        yf.fetch_bars.return_value = [_bar(date(2026, 5, 22))]
+
+        router = MarketDataRouter(shioaji_provider=sj, yfinance_provider=yf)
+        bars = router.fetch_bars(_t0050(), date(2026, 5, 1), date(2026, 5, 31))
+
+        sj.fetch_bars.assert_called_once()
+        yf.fetch_bars.assert_called_once()
+        assert len(bars) == 1
+        assert "yfinance" in router.last_provider_used().lower()
+
+    def test_tw_falls_back_when_shioaji_raises(self) -> None:
+        sj = MagicMock()
+        sj.is_logged_in.return_value = True
+        sj.fetch_bars.side_effect = RuntimeError("Shioaji error")
+        yf = MagicMock()
+        yf.fetch_bars.return_value = [_bar(date(2026, 5, 22))]
+
+        router = MarketDataRouter(shioaji_provider=sj, yfinance_provider=yf)
+        bars = router.fetch_bars(_t0050(), date(2026, 5, 1), date(2026, 5, 31))
+
+        yf.fetch_bars.assert_called_once()
+        assert len(bars) == 1
+
+
 class TestProviderUsed:
     def test_active_provider_us(self) -> None:
         # 診斷用：回報實際使用的 provider name
@@ -101,7 +132,7 @@ class TestProviderUsed:
     def test_active_provider_tw_shioaji(self) -> None:
         sj = MagicMock()
         sj.is_logged_in.return_value = True
-        sj.fetch_bars.return_value = []
+        sj.fetch_bars.return_value = [_bar(date(2026, 5, 22))]
         yf = MagicMock()
 
         router = MarketDataRouter(shioaji_provider=sj, yfinance_provider=yf)
