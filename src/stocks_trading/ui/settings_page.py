@@ -38,12 +38,30 @@ def _default_notification_builder(config: ConfigStore) -> _NotificationServiceLi
     return NotificationService.from_config(config=config)
 
 
+# 接 (api_key, secret_key) 回 True/False 的測試函式
+ShioajiTester = Callable[[str, str], bool]
+
+
+def _default_shioaji_tester(api_key: str, secret_key: str) -> bool:
+    """預設用真實 Shioaji login (短暫連線後即 logout)．"""
+    try:
+        from stocks_trading.data.shioaji_provider import ShioajiDataProvider
+
+        provider = ShioajiDataProvider(api_key=api_key, secret_key=secret_key)
+        provider.login()
+        provider.logout()
+        return True
+    except Exception:
+        return False
+
+
 class SettingsPage(QWidget):
     def __init__(
         self,
         *,
         config: ConfigStore,
         notification_service_builder: NotificationServiceBuilder | None = None,
+        shioaji_tester: ShioajiTester | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("surface")
@@ -51,6 +69,7 @@ class SettingsPage(QWidget):
         self._notification_builder = (
             notification_service_builder or _default_notification_builder
         )
+        self._shioaji_tester = shioaji_tester or _default_shioaji_tester
 
         self._smtp_host = QLineEdit()
         self._smtp_port = QSpinBox()
@@ -65,6 +84,12 @@ class SettingsPage(QWidget):
         self._single_risk_pct.setSingleStep(0.1)
         self._total_exposure_pct = QDoubleSpinBox()
         self._total_exposure_pct.setRange(0.0, 100.0)
+
+        # Shioaji 區塊 (兩個欄位都走 secret 命名空間)
+        self._shioaji_api_key = QLineEdit()
+        self._shioaji_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._shioaji_secret_key = QLineEdit()
+        self._shioaji_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
 
         self._build_ui()
         self._load_from_config()
@@ -113,6 +138,28 @@ class SettingsPage(QWidget):
     def set_total_exposure_pct(self, v: float) -> None:
         self._total_exposure_pct.setValue(v)
 
+    # ---- Shioaji helpers ----
+    def shioaji_api_key_value(self) -> str:
+        return self._shioaji_api_key.text()
+
+    def shioaji_secret_key_value(self) -> str:
+        return self._shioaji_secret_key.text()
+
+    def set_shioaji_api_key(self, v: str) -> None:
+        self._shioaji_api_key.setText(v)
+
+    def set_shioaji_secret_key(self, v: str) -> None:
+        self._shioaji_secret_key.setText(v)
+
+    def test_shioaji_connection(self) -> bool:
+        """先 save 當前表單，再以 tester 試連線；回 True/False．"""
+        self.save()
+        api_key = self._shioaji_api_key.text()
+        secret_key = self._shioaji_secret_key.text()
+        if not api_key or not secret_key:
+            return False
+        return self._shioaji_tester(api_key, secret_key)
+
     # ---- test email ----
     def send_test_email(self) -> bool:
         """先 save 當前表單，再呼叫 builder 取 NotificationService 寄測試信．"""
@@ -147,6 +194,14 @@ class SettingsPage(QWidget):
             "risk.total_exposure_pct", self._total_exposure_pct.value()
         )
 
+        # Shioaji api_key + secret_key 都走 secret 命名空間
+        sj_api = self._shioaji_api_key.text()
+        sj_secret = self._shioaji_secret_key.text()
+        if sj_api:
+            self._config.set_secret("shioaji.api_key", sj_api)
+        if sj_secret:
+            self._config.set_secret("shioaji.secret_key", sj_secret)
+
     # ---- UI ----
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -154,6 +209,7 @@ class SettingsPage(QWidget):
         outer.setSpacing(16)
 
         outer.addWidget(self._build_smtp_group())
+        outer.addWidget(self._build_shioaji_group())
         outer.addWidget(self._build_risk_group())
 
         actions = QHBoxLayout()
@@ -190,6 +246,29 @@ class SettingsPage(QWidget):
         form.addRow(QLabel("總曝險 (%)"), self._total_exposure_pct)
         return group
 
+    def _build_shioaji_group(self) -> QGroupBox:
+        group = QGroupBox("永豐 Shioaji API (台股行情)")
+        form = QFormLayout(group)
+        form.addRow(QLabel("API Key"), self._shioaji_api_key)
+        form.addRow(QLabel("Secret Key"), self._shioaji_secret_key)
+        test_btn = QPushButton("測試連線")
+        test_btn.setObjectName("ghost")
+        test_btn.clicked.connect(self._on_test_shioaji_clicked)
+        self._shioaji_status_label = QLabel("")
+        self._shioaji_status_label.setObjectName("muted")
+        form.addRow("", test_btn)
+        form.addRow("", self._shioaji_status_label)
+        return group
+
+    def _on_test_shioaji_clicked(self) -> None:
+        ok = self.test_shioaji_connection()
+        if ok:
+            self._shioaji_status_label.setText("✓ Shioaji 登入成功")
+        else:
+            self._shioaji_status_label.setText(
+                "✗ 連線失敗，請確認 API Key / Secret Key"
+            )
+
     def _load_from_config(self) -> None:
         self._smtp_host.setText(self._config.get_plain("smtp.host", "") or "")
         self._smtp_port.setValue(int(self._config.get_plain("smtp.port", 587) or 587))
@@ -207,3 +286,10 @@ class SettingsPage(QWidget):
         self._total_exposure_pct.setValue(
             float(self._config.get_plain("risk.total_exposure_pct", 80.0) or 80.0)
         )
+
+        sj_api = self._config.get_secret("shioaji.api_key")
+        if sj_api is not None:
+            self._shioaji_api_key.setText(sj_api)
+        sj_secret = self._config.get_secret("shioaji.secret_key")
+        if sj_secret is not None:
+            self._shioaji_secret_key.setText(sj_secret)

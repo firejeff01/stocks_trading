@@ -1,17 +1,21 @@
 """SettingsPage 規格．
 
-- 表單：SMTP / 風控 / 模擬參數
+- 表單：SMTP / 風控 / Shioaji
 - 載入 / 儲存皆走 ConfigStore
 - 密碼欄位走 secret 命名空間 (DPAPI 加密)
 - 寄送測試信按鈕 → NotificationService.send_test_email
+- Shioaji 測試連線 → ShioajiTester 注入
 """
 
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
 from pytestqt.qtbot import QtBot
 
 from stocks_trading.config.store import ConfigStore
 from stocks_trading.ui.settings_page import SettingsPage
+
+ShioajiTester = Callable[[str, str], bool]
 
 
 class TestEmptyConfig:
@@ -141,3 +145,79 @@ class TestTestEmailButton:
         page.send_test_email()
         # 即使沒手動按 save，host 也該被持久化
         assert config.get_plain("smtp.host") == "smtp.example.com"
+
+
+class TestShioajiSection:
+    def test_empty_shioaji_defaults(self, qtbot: QtBot, config: ConfigStore) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page.shioaji_api_key_value() == ""
+        assert page.shioaji_secret_key_value() == ""
+
+    def test_load_existing_shioaji(self, qtbot: QtBot, config: ConfigStore) -> None:
+        config.set_secret("shioaji.api_key", "KEY-XYZ")
+        config.set_secret("shioaji.secret_key", "SEC-XYZ")
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page.shioaji_api_key_value() == "KEY-XYZ"
+        assert page.shioaji_secret_key_value() == "SEC-XYZ"
+
+    def test_save_persists_shioaji_as_secrets(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        page.set_shioaji_api_key("KEY-1")
+        page.set_shioaji_secret_key("SEC-1")
+        page.save()
+        # 兩者都走 secret 命名空間
+        assert config.get_secret("shioaji.api_key") == "KEY-1"
+        assert config.get_secret("shioaji.secret_key") == "SEC-1"
+        # 明文不該有
+        assert config.get_plain("shioaji.api_key") is None
+        assert config.get_plain("shioaji.secret_key") is None
+
+    def test_test_shioaji_connection_calls_tester(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        called: list[tuple[str, str]] = []
+
+        def tester(api_key: str, secret_key: str) -> bool:
+            called.append((api_key, secret_key))
+            return True
+
+        page = SettingsPage(
+            config=config,
+            shioaji_tester=tester,
+        )
+        qtbot.addWidget(page)
+        page.set_shioaji_api_key("K")
+        page.set_shioaji_secret_key("S")
+        result = page.test_shioaji_connection()
+        assert result is True
+        assert called == [("K", "S")]
+
+    def test_test_shioaji_returns_false_on_failure(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        def failing_tester(_a: str, _s: str) -> bool:
+            return False
+
+        page = SettingsPage(config=config, shioaji_tester=failing_tester)
+        qtbot.addWidget(page)
+        page.set_shioaji_api_key("BAD")
+        page.set_shioaji_secret_key("BAD")
+        assert page.test_shioaji_connection() is False
+
+    def test_test_shioaji_saves_before_calling(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(
+            config=config,
+            shioaji_tester=lambda _a, _s: True,
+        )
+        qtbot.addWidget(page)
+        page.set_shioaji_api_key("FRESH-KEY")
+        page.test_shioaji_connection()
+        # 點測試前不需手動 save，但 key 已被持久化
+        assert config.get_secret("shioaji.api_key") == "FRESH-KEY"
