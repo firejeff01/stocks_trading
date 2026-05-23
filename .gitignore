@@ -55,6 +55,8 @@ secrets.json
 *.exe
 output/
 release/
+installer/dist/
+installer/build/
 
 # Claude Code 工作目錄（如果有）
 .claude/

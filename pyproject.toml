@@ -32,6 +32,7 @@ dev = [
   "freezegun>=1.5",
   "types-pywin32>=306; platform_system == 'Windows'",
   "pandas-stubs>=2.2",
+  "cx_Freeze>=7.2; platform_system == 'Windows'",
 ]
 
 [tool.setuptools.packages.find]

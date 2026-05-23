@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  StocksTrading 台股盤後排程
+  - 觸發時間：週一至週五 14:00 (台北時間)
+  - 動作：呼叫 CLI exe 跑當日策略 + 寄每日摘要
+
+  匯入方式：
+    schtasks /create /tn "StocksTrading-TW" /xml tw_market_close.xml /f
+
+  注意 (v1.0 版本)：
+  - CLI 的 --daily-routine 參數是 v1.5 預留；v1.0 尚未實作 (按下時會直接 exit)
+  - 完整自動化 paper trading 在 v1.5 才會啟用
+  - v1.0 期間此排程仍可登記但不會做事
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>StocksTrading — 台股盤後策略執行 (14:00 GMT+8)</Description>
+    <Author>StocksTrading</Author>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T14:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+        <DaysOfWeek>
+          <Monday/>
+          <Tuesday/>
+          <Wednesday/>
+          <Thursday/>
+          <Friday/>
+        </DaysOfWeek>
+        <WeeksInterval>1</WeeksInterval>
+      </ScheduleByWeek>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%LOCALAPPDATA%\Programs\StocksTrading\StocksTrading-cli.exe</Command>
+      <Arguments>--daily-routine --market TW</Arguments>
+    </Exec>
+  </Actions>
+</Task>
