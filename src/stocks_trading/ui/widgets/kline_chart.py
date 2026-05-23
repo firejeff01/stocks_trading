@@ -193,6 +193,18 @@ class KLineChart(QWidget):
         self._h_line.setVisible(False)
         self._plot.addItem(self._v_line, ignoreBounds=True)
         self._plot.addItem(self._h_line, ignoreBounds=True)
+
+        # 圖內漂浮 OHLC 資訊框 (跟著游標) — 與上方 header tooltip 同步
+        # anchor 預設右上 (0,1)，會在 _on_mouse_moved 依游標位置切換避免被遮蔽
+        self._hover_text = pg.TextItem(
+            text="",
+            anchor=(0.0, 1.0),
+            fill=pg.mkBrush(self._hover_fill_color()),
+            border=pg.mkPen(self._theme.muted, width=0.8),
+        )
+        self._hover_text.setZValue(50)  # 蓋在蠟燭上
+        self._hover_text.setVisible(False)
+        self._plot.addItem(self._hover_text, ignoreBounds=True)
         # 用 SignalProxy 節流 + 持引用避免 GC (pyqtgraph 官方建議)
         self._mouse_proxy = pg.SignalProxy(
             self._plot.scene().sigMouseMoved,
@@ -254,9 +266,19 @@ class KLineChart(QWidget):
         crosshair_pen = pg.mkPen(self._theme.muted, width=0.8, style=Qt.PenStyle.DashLine)
         self._v_line.setPen(crosshair_pen)
         self._h_line.setPen(crosshair_pen)
+        # 同步漂浮 tooltip 的底色與邊框
+        self._hover_text.fill = pg.mkBrush(self._hover_fill_color())
+        self._hover_text.border = pg.mkPen(self._theme.muted, width=0.8)
         self._redraw()
 
     # ---- internals ----
+    def _hover_fill_color(self) -> QColor:
+        """漂浮 tooltip 背景：與 bg 同色但半透明，留出文字可讀對比．"""
+        base = QColor(self._theme.bg)
+        # alpha 220/255 ≈ 86% 不透明，蓋住底下蠟燭又不刺眼
+        base.setAlpha(220)
+        return base
+
     def _apply_theme_to_plot(self) -> None:
         self._plot.setBackground(self._theme.bg)
         axis_pen = pg.mkPen(self._theme.muted)
@@ -270,8 +292,9 @@ class KLineChart(QWidget):
 
     def _redraw(self) -> None:
         # 移除舊蠟燭與 MA 線；保留 crosshair (ignoreBounds)
+        keep = (self._v_line, self._h_line, self._hover_text)
         for item in list(self._plot.plotItem.items):
-            if item not in (self._v_line, self._h_line):
+            if item not in keep:
                 self._plot.removeItem(item)
 
         if not self._bars:
@@ -327,10 +350,11 @@ class KLineChart(QWidget):
     def _on_mouse_moved(self, pos: object) -> None:
         if not self._bars:
             return
-        # 滑鼠必須在 plot 場景區域內才更新；超出就隱藏 crosshair
+        # 滑鼠必須在 plot 場景區域內才更新；超出就隱藏 crosshair + 漂浮 tooltip
         if not self._plot.sceneBoundingRect().contains(pos):
             self._v_line.setVisible(False)
             self._h_line.setVisible(False)
+            self._hover_text.setVisible(False)
             return
         view_box = self._plot.plotItem.vb
         if view_box is None:
@@ -352,13 +376,38 @@ class KLineChart(QWidget):
         diff_pct = (diff / bar.open * Decimal(100)) if bar.open != 0 else Decimal(0)
         sign = "+" if diff >= 0 else ""
         color = self._up_color if diff >= 0 else self._down_color
-        self._tooltip_label.setText(
+        header_html = (
             f"<b>{bar.bar_date}</b> &nbsp; "
             f"O <b>{bar.open}</b> &nbsp; H <b>{bar.high}</b> &nbsp; "
             f"L <b>{bar.low}</b> &nbsp; C <b>{bar.close}</b> &nbsp; "
             f"V <b>{bar.volume:,}</b> &nbsp; "
             f'<span style="color:{color}">{sign}{diff} ({sign}{diff_pct:.2f}%)</span>'
         )
+        self._tooltip_label.setText(header_html)
+
+        # 圖內漂浮資訊框 — 多行排版便於閱讀
+        floating_html = (
+            f'<div style="font-family:Consolas;color:{self._theme.fg};'
+            f'font-size:11pt;line-height:1.4">'
+            f"<b>{bar.bar_date}</b><br>"
+            f"開 <b>{bar.open}</b><br>"
+            f"高 <b>{bar.high}</b><br>"
+            f"低 <b>{bar.low}</b><br>"
+            f"收 <b>{bar.close}</b><br>"
+            f"量 <b>{bar.volume:,}</b><br>"
+            f'<span style="color:{color}">{sign}{diff} ({sign}{diff_pct:.2f}%)</span>'
+            f"</div>"
+        )
+        self._hover_text.setHtml(floating_html)
+        # 動態錨點：游標位於 plot 左半 → 框畫在右側；右半 → 畫在左側
+        x_range, y_range = view_box.viewRange()
+        x_mid = (x_range[0] + x_range[1]) / 2.0
+        y_mid = (y_range[0] + y_range[1]) / 2.0
+        anchor_x = 0.0 if x_value < x_mid else 1.0
+        anchor_y = 1.0 if mouse_point.y() > y_mid else 0.0
+        self._hover_text.setAnchor((anchor_x, anchor_y))
+        self._hover_text.setPos(x_value, mouse_point.y())
+        self._hover_text.setVisible(True)
 
         self.cursor_bar_changed.emit(idx)
 

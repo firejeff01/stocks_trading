@@ -16,9 +16,13 @@
   每次 `_redraw` 呼叫 `enableAutoRange()`，使新標的的可視範圍即時 fit
 - 軸刻度字體放大 (pointSize 11)、tooltip pointSize 13、legend pointSize 12
   改善小視窗閱讀性
+- K 線蠟燭新增**圖內漂浮 OHLC 資訊框** (`pg.TextItem`)：
+  滑鼠移到蠟燭上時直接在圖面上顯示日期/開高低收/量/漲跌幅，
+  與上方 header tooltip 同步；錨點依游標位置自動切換 (左/右、上/下)
+  避免被遮蔽；主題切換時底色 / 邊框同步重套
 
 ### 統計
-- 482 tests 全綠 (+12 from v0.1.1)
+- 486 tests 全綠 (+16 from v0.1.1)
 - ruff / mypy strict 全綠
 
 ## [0.1.1] — 2026-05-23 — UI 接資料層 + Shioaji 行情

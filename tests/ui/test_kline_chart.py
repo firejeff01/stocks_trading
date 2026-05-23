@@ -92,3 +92,56 @@ class TestMarketColors:
         chart = KLineChart(market_red_up=False)
         qtbot.addWidget(chart)
         assert chart.up_color() != chart.down_color()
+
+
+class TestFloatingHoverTooltip:
+    def test_hover_text_hidden_by_default(self, qtbot: QtBot) -> None:
+        chart = KLineChart()
+        qtbot.addWidget(chart)
+        assert chart._hover_text.isVisible() is False
+
+    def test_hover_text_hidden_when_no_bars(self, qtbot: QtBot) -> None:
+        chart = KLineChart()
+        qtbot.addWidget(chart)
+        # 沒資料時呼叫 mouse handler 不應該打開漂浮框
+        chart._on_mouse_moved(object())
+        assert chart._hover_text.isVisible() is False
+
+    def test_hover_text_shows_after_mouse_inside_plot(
+        self, qtbot: QtBot
+    ) -> None:
+        from PySide6.QtCore import QPointF
+
+        chart = KLineChart()
+        qtbot.addWidget(chart)
+        chart.resize(800, 400)
+        chart.show()
+        qtbot.waitExposed(chart)
+        chart.update_bars(_bars(30))
+        # 取 plot 場景中央做為「滑鼠位置」
+        rect = chart._plot.sceneBoundingRect()
+        center = QPointF(rect.center().x(), rect.center().y())
+        chart._on_mouse_moved(center)
+        assert chart._hover_text.isVisible() is True
+        # 應該帶有當前 bar 的 OHLC 文字
+        html = chart._hover_text.textItem.toHtml()
+        assert "開" in html and "高" in html and "低" in html and "收" in html
+
+    def test_hover_text_hidden_when_mouse_outside_plot(
+        self, qtbot: QtBot
+    ) -> None:
+        from PySide6.QtCore import QPointF
+
+        chart = KLineChart()
+        qtbot.addWidget(chart)
+        chart.resize(800, 400)
+        chart.show()
+        qtbot.waitExposed(chart)
+        chart.update_bars(_bars(30))
+        # 先讓它顯示，再用 plot 外的點觸發隱藏
+        rect = chart._plot.sceneBoundingRect()
+        chart._on_mouse_moved(QPointF(rect.center().x(), rect.center().y()))
+        assert chart._hover_text.isVisible() is True
+        outside = QPointF(rect.right() + 100, rect.bottom() + 100)
+        chart._on_mouse_moved(outside)
+        assert chart._hover_text.isVisible() is False
