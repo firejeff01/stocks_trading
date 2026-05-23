@@ -11,8 +11,10 @@ requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Jeff Lin", email = "firejeff01@hotmail.com" }]
 
-# Runtime dependencies grow per milestone — start minimal (M0 only needs stdlib + a few)
-dependencies = []
+# Runtime dependencies grow per milestone — start minimal (M0 only needs stdlib + Windows DPAPI)
+dependencies = [
+  "pywin32>=306; platform_system == 'Windows'",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -21,6 +23,7 @@ dev = [
   "ruff>=0.5",
   "mypy>=1.10",
   "freezegun>=1.5",
+  "types-pywin32>=306; platform_system == 'Windows'",
 ]
 
 [tool.setuptools.packages.find]
