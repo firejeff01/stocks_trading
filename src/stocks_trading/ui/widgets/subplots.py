@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import Qt
@@ -31,9 +32,35 @@ def _bar_to_timestamp(bar: Bar) -> float:
     ).timestamp()
 
 
-def _make_plot(theme: ChartTheme) -> pg.PlotWidget:  # type: ignore[no-any-unimported]
+def _abbrev_volume(value: float) -> str:
+    """把大數字壓成易讀的「億／萬」單位，避免 4e+08 之類科學記號．"""
+    av = abs(value)
+    if av >= 1e8:
+        return f"{value / 1e8:.1f}億"
+    if av >= 1e4:
+        return f"{value / 1e4:.0f}萬"
+    return f"{value:.0f}"
+
+
+class _AbbrevAxisItem(pg.AxisItem):  # type: ignore[misc,no-any-unimported]
+    """左軸刻度格式器：將成交量顯示為「億／萬」而非 4e+08．"""
+
+    def tickStrings(  # noqa: N802 (pyqtgraph callback name)
+        self, values: list[float], scale: float, spacing: float
+    ) -> list[str]:
+        return [_abbrev_volume(v) for v in values]
+
+
+def _make_plot(
+    theme: ChartTheme,
+    *,
+    left_axis: Any = None,
+) -> Any:
     date_axis = pg.DateAxisItem(orientation="bottom")
-    w = pg.PlotWidget(axisItems={"bottom": date_axis})
+    axes: dict[str, Any] = {"bottom": date_axis}
+    if left_axis is not None:
+        axes["left"] = left_axis
+    w = pg.PlotWidget(axisItems=axes)
     w.setBackground(theme.bg)
     w.showGrid(x=True, y=True, alpha=0.25)
     axis_pen = pg.mkPen(theme.muted)
@@ -68,7 +95,8 @@ class VolumeBars(QWidget):
         self._bars: list[Bar] = []
         self._bar_seconds: float = 86400.0
         self._theme = theme or LIGHT_CHART_THEME
-        self._plot = _make_plot(self._theme)
+        # 用自訂左軸把成交量顯示為「萬／億」
+        self._plot = _make_plot(self._theme, left_axis=_AbbrevAxisItem(orientation="left"))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._plot)

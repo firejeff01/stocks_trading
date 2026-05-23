@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -307,23 +308,34 @@ class ChartPage(QWidget):
 
         # 中段：左主圖+副圖直排 ; 右：形態列表 (Splitter 可拖動)
         body = QSplitter(Qt.Orientation.Horizontal)
-        charts = QWidget()
-        charts.setMinimumWidth(400)
-        charts_layout = QVBoxLayout(charts)
-        charts_layout.setContentsMargins(0, 0, 0, 0)
-        charts_layout.setSpacing(2)
 
-        # 各副圖最小高度設小一點避免在小視窗壞掉
-        self._kline.setMinimumHeight(180)
-        self._volume.setMinimumHeight(60)
-        self._rsi.setMinimumHeight(60)
-        self._macd.setMinimumHeight(60)
+        # charts 內容容器 — 套在 QScrollArea 內，視窗不夠高就出現垂直滾軸
+        # 避免副圖被擠到看不見刻度
+        charts_inner = QWidget()
+        charts_inner.setMinimumWidth(400)
+        charts_layout = QVBoxLayout(charts_inner)
+        charts_layout.setContentsMargins(0, 0, 0, 0)
+        charts_layout.setSpacing(4)
+
+        # 各副圖保有足夠閱讀高度；總高度 = 320+160*3 = 800 (含 spacing)
+        self._kline.setMinimumHeight(320)
+        self._volume.setMinimumHeight(160)
+        self._rsi.setMinimumHeight(160)
+        self._macd.setMinimumHeight(160)
 
         charts_layout.addWidget(self._kline, 5)
-        charts_layout.addWidget(self._volume, 1)
-        charts_layout.addWidget(self._rsi, 1)
-        charts_layout.addWidget(self._macd, 1)
-        body.addWidget(charts)
+        charts_layout.addWidget(self._volume, 2)
+        charts_layout.addWidget(self._rsi, 2)
+        charts_layout.addWidget(self._macd, 2)
+
+        # 重點：包進 QScrollArea，內容超過視窗時垂直滾動而非壓縮副圖
+        charts_scroll = QScrollArea()
+        charts_scroll.setWidgetResizable(True)
+        charts_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        charts_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        charts_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        charts_scroll.setWidget(charts_inner)
+        body.addWidget(charts_scroll)
 
         side = QWidget()
         side.setMinimumWidth(180)

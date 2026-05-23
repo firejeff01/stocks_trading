@@ -10,7 +10,29 @@ from stocks_trading.ui.widgets.subplots import (
     MACDPlot,
     RSIPlot,
     VolumeBars,
+    _abbrev_volume,
 )
+
+
+class TestAbbrevVolume:
+    def test_below_ten_thousand_is_integer(self) -> None:
+        assert _abbrev_volume(0) == "0"
+        assert _abbrev_volume(5_000) == "5000"
+        assert _abbrev_volume(9_999) == "9999"
+
+    def test_wan_range(self) -> None:
+        assert _abbrev_volume(10_000) == "1萬"
+        assert _abbrev_volume(125_000) == "12萬"
+        assert _abbrev_volume(9_999_999) == "1000萬"
+
+    def test_yi_range(self) -> None:
+        # 4e+08 = 4 億，是使用者抱怨的場景
+        assert _abbrev_volume(4e8) == "4.0億"
+        assert _abbrev_volume(8.75e8) == "8.8億"
+        assert _abbrev_volume(1.2e9) == "12.0億"
+
+    def test_negative(self) -> None:
+        assert _abbrev_volume(-2e8) == "-2.0億"
 
 
 def _bars(n: int = 30) -> list[Bar]:
