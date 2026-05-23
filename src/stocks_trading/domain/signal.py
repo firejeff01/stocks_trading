@@ -35,6 +35,7 @@ class Signal:
         "expires_at",
         "reason",
         "status",
+        "suggested_qty",
     )
 
     def __init__(
@@ -63,6 +64,8 @@ class Signal:
         self.status = SignalStatus.PENDING_RISK_CHECK
         self.expires_at: datetime | None = None
         self.reason: str | None = None
+        # 由 RiskGuard / BacktestEngine 後續設定，反映風控計算後的張數
+        self.suggested_qty: int | None = None
 
     # ---- read-only properties ----
     @property
