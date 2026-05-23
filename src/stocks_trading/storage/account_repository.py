@@ -61,6 +61,22 @@ class AccountRepository:
     def unfreeze(self, account_id: UUID) -> None:
         self._update_is_frozen(account_id, frozen=False)
 
+    def update_init_capital(self, account_id: UUID, init_capital: Money) -> None:
+        """更新帳本起始資金．用於 reset 流程．幣別必須相符．"""
+        existing = self.find_by_id(account_id)
+        if existing is None:
+            raise LookupError(f"account_id {account_id} 不存在")
+        if init_capital.currency is not existing.initial_capital.currency:
+            raise ValueError(
+                f"init_capital currency {init_capital.currency} 不符帳本幣別 "
+                f"{existing.initial_capital.currency}"
+            )
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                "UPDATE accounts SET init_capital = ? WHERE id = ?",
+                (str(init_capital.amount), str(account_id)),
+            )
+
     def update_equity(self, account_id: UUID, equity: Money) -> None:
         existing = self.find_by_id(account_id)
         if existing is None:

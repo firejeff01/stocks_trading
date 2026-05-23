@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Protocol
 
 from PySide6.QtWidgets import (
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -23,6 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from stocks_trading.config.store import ConfigStore
+from stocks_trading.domain.currency import Currency
+from stocks_trading.domain.money import Money
+from stocks_trading.paper_trading.reset_service import ResetService
+from stocks_trading.storage.account_repository import AccountRepository
+from stocks_trading.storage.seed_accounts import (
+    SIM_TW_ACCOUNT_ID,
+    SIM_US_ACCOUNT_ID,
+)
 
 
 class _NotificationServiceLike(Protocol):
@@ -63,6 +73,9 @@ class SettingsPage(QWidget):
         config: ConfigStore,
         notification_service_builder: NotificationServiceBuilder | None = None,
         shioaji_tester: ShioajiTester | None = None,
+        account_repo: AccountRepository | None = None,
+        reset_service: ResetService | None = None,
+        confirm_fn: Callable[[str], bool] | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("surface")
@@ -71,6 +84,9 @@ class SettingsPage(QWidget):
             notification_service_builder or _default_notification_builder
         )
         self._shioaji_tester = shioaji_tester or _default_shioaji_tester
+        self._account_repo = account_repo
+        self._reset_service = reset_service
+        self._confirm_fn = confirm_fn or self._default_confirm
 
         self._smtp_host = QLineEdit()
         self._smtp_port = QSpinBox()
@@ -91,6 +107,18 @@ class SettingsPage(QWidget):
         self._shioaji_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self._shioaji_secret_key = QLineEdit()
         self._shioaji_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
+
+        # SIM 帳本起始資金
+        self._sim_tw_init = QDoubleSpinBox()
+        self._sim_tw_init.setRange(1000.0, 100_000_000.0)
+        self._sim_tw_init.setDecimals(0)
+        self._sim_tw_init.setSingleStep(10_000)
+        self._sim_us_init = QDoubleSpinBox()
+        self._sim_us_init.setRange(100.0, 10_000_000.0)
+        self._sim_us_init.setDecimals(0)
+        self._sim_us_init.setSingleStep(100)
+        self._sim_status_label = QLabel("")
+        self._sim_status_label.setObjectName("muted")
 
         self._build_ui()
         self._load_from_config()
@@ -151,6 +179,66 @@ class SettingsPage(QWidget):
 
     def set_shioaji_secret_key(self, v: str) -> None:
         self._shioaji_secret_key.setText(v)
+
+    # ---- SIM 帳本 helpers ----
+    def sim_tw_init_value(self) -> float:
+        return self._sim_tw_init.value()
+
+    def sim_us_init_value(self) -> float:
+        return self._sim_us_init.value()
+
+    def set_sim_tw_init(self, v: float) -> None:
+        self._sim_tw_init.setValue(v)
+
+    def set_sim_us_init(self, v: float) -> None:
+        self._sim_us_init.setValue(v)
+
+    def reset_sim_tw(self) -> None:
+        """重置 SIM-TW 帳本 (清持倉 / 績效 + 用當前欄位值當新 init_capital)．"""
+        self._reset_account(
+            account_id=SIM_TW_ACCOUNT_ID,
+            new_init=Money(Decimal(str(self.sim_tw_init_value())), Currency.TWD),
+            label="SIM-TW",
+        )
+
+    def reset_sim_us(self) -> None:
+        """重置 SIM-US 帳本 (清持倉 / 績效 + 用當前欄位值當新 init_capital)．"""
+        self._reset_account(
+            account_id=SIM_US_ACCOUNT_ID,
+            new_init=Money(Decimal(str(self.sim_us_init_value())), Currency.USD),
+            label="SIM-US",
+        )
+
+    def _reset_account(self, *, account_id, new_init: Money, label: str) -> None:  # type: ignore[no-untyped-def]
+        if self._reset_service is None:
+            self._sim_status_label.setText("✗ 尚未注入 ResetService")
+            return
+        msg = (
+            f"確定要重置 {label} 帳本嗎？\n"
+            f"將清除持倉與績效曲線、cash 重設為 {new_init}．"
+        )
+        if not self._confirm_fn(msg):
+            return
+        try:
+            self._reset_service.reset(
+                account_id=account_id, new_init_capital=new_init
+            )
+        except (ValueError, LookupError) as exc:
+            self._sim_status_label.setText(f"✗ 重置失敗：{exc}")
+            return
+        self._sim_status_label.setText(f"✓ {label} 已重置 ({new_init})")
+
+    @staticmethod
+    def _default_confirm(message: str) -> bool:
+        """預設用 QMessageBox 取得使用者確認．測試可注入 lambda 替換．"""
+        reply = QMessageBox.question(
+            None,
+            "確認重置 SIM 帳本",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     def test_shioaji_connection(self) -> bool:
         """先 save 當前表單，再以 tester 試連線；回 True/False．"""
@@ -224,6 +312,7 @@ class SettingsPage(QWidget):
         inner.addWidget(self._build_smtp_group())
         inner.addWidget(self._build_shioaji_group())
         inner.addWidget(self._build_risk_group())
+        inner.addWidget(self._build_sim_accounts_group())
 
         actions = QHBoxLayout()
         actions.addStretch(1)
@@ -258,6 +347,29 @@ class SettingsPage(QWidget):
         form = QFormLayout(group)
         form.addRow(QLabel("單筆風險 (%)"), self._single_risk_pct)
         form.addRow(QLabel("總曝險 (%)"), self._total_exposure_pct)
+        return group
+
+    def _build_sim_accounts_group(self) -> QGroupBox:
+        group = QGroupBox("SIM 模擬帳本 (Paper Trading)")
+        form = QFormLayout(group)
+
+        tw_row = QHBoxLayout()
+        tw_row.addWidget(self._sim_tw_init)
+        tw_reset = QPushButton("重置 SIM-TW")
+        tw_reset.setObjectName("ghost")
+        tw_reset.clicked.connect(self.reset_sim_tw)
+        tw_row.addWidget(tw_reset)
+        form.addRow(QLabel("SIM-TW 起始資金 (TWD)"), tw_row)
+
+        us_row = QHBoxLayout()
+        us_row.addWidget(self._sim_us_init)
+        us_reset = QPushButton("重置 SIM-US")
+        us_reset.setObjectName("ghost")
+        us_reset.clicked.connect(self.reset_sim_us)
+        us_row.addWidget(us_reset)
+        form.addRow(QLabel("SIM-US 起始資金 (USD)"), us_row)
+
+        form.addRow("", self._sim_status_label)
         return group
 
     def _build_shioaji_group(self) -> QGroupBox:
@@ -307,3 +419,13 @@ class SettingsPage(QWidget):
         sj_secret = self._config.get_secret("shioaji.secret_key")
         if sj_secret is not None:
             self._shioaji_secret_key.setText(sj_secret)
+
+        # SIM 帳本起始資金從 accounts 表讀取 (不依賴 ConfigStore，因為
+        # init_capital 是帳本的內在屬性)
+        if self._account_repo is not None:
+            tw = self._account_repo.find_by_id(SIM_TW_ACCOUNT_ID)
+            if tw is not None:
+                self._sim_tw_init.setValue(float(tw.initial_capital.amount))
+            us = self._account_repo.find_by_id(SIM_US_ACCOUNT_ID)
+            if us is not None:
+                self._sim_us_init.setValue(float(us.initial_capital.amount))

@@ -221,3 +221,125 @@ class TestShioajiSection:
         page.test_shioaji_connection()
         # 點測試前不需手動 save，但 key 已被持久化
         assert config.get_secret("shioaji.api_key") == "FRESH-KEY"
+
+
+class TestSimAccountsSection:
+    """SIM 帳本管理 (paper trading 起始資金 + 重置)．"""
+
+    def _setup_db(self, tmp_path):  # type: ignore[no-untyped-def]
+        from stocks_trading.storage import MIGRATIONS_DIR
+        from stocks_trading.storage.migration import MigrationRunner
+
+        db = tmp_path / "app.db"
+        MigrationRunner(
+            db_path=db, migrations_dir=MIGRATIONS_DIR
+        ).apply_pending()
+        return db
+
+    def _build_page(self, qtbot, config, tmp_path, *, confirm: bool = True):  # type: ignore[no-untyped-def]
+        from stocks_trading.paper_trading.reset_service import ResetService
+        from stocks_trading.storage.account_repository import AccountRepository
+        from stocks_trading.storage.daily_pnl_repository import (
+            DailyPnlRepository,
+        )
+        from stocks_trading.storage.positions_repository import (
+            PositionsRepository,
+        )
+
+        db = self._setup_db(tmp_path)
+        account_repo = AccountRepository(db_path=db)
+        positions_repo = PositionsRepository(db_path=db)
+        daily_pnl_repo = DailyPnlRepository(db_path=db)
+        reset_service = ResetService(
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+            account_repo=account_repo,
+        )
+        page = SettingsPage(
+            config=config,
+            account_repo=account_repo,
+            reset_service=reset_service,
+            confirm_fn=lambda _msg: confirm,
+        )
+        qtbot.addWidget(page)
+        return page, account_repo, positions_repo, daily_pnl_repo
+
+    def test_loads_init_capital_from_accounts(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+        # seed accounts.init_capital = TWD 100000 / USD 3000
+        page, _, _, _ = self._build_page(qtbot, config, tmp_path)
+        assert page.sim_tw_init_value() == 100000.0
+        assert page.sim_us_init_value() == 3000.0
+
+    def test_set_and_get_sim_us_init(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+        page, _, _, _ = self._build_page(qtbot, config, tmp_path)
+        page.set_sim_us_init(1000.0)
+        assert page.sim_us_init_value() == 1000.0
+
+    def test_reset_us_calls_service_when_confirmed(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+        from decimal import Decimal
+
+        page, account_repo, _, _ = self._build_page(
+            qtbot, config, tmp_path, confirm=True
+        )
+        # 設新 init=1000 然後按重置
+        page.set_sim_us_init(1000.0)
+        page.reset_sim_us()
+        # accounts.init_capital + current_equity 都應該變 1000
+        from stocks_trading.storage.seed_accounts import SIM_US_ACCOUNT_ID
+
+        acc = account_repo.find_by_id(SIM_US_ACCOUNT_ID)
+        assert acc is not None
+        assert acc.initial_capital.amount == Decimal("1000")
+        assert account_repo.get_current_equity(
+            SIM_US_ACCOUNT_ID
+        ).amount == Decimal("1000")
+
+    def test_reset_aborts_when_user_cancels(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+
+        page, account_repo, _, _ = self._build_page(
+            qtbot, config, tmp_path, confirm=False  # 使用者按取消
+        )
+        from stocks_trading.storage.seed_accounts import SIM_US_ACCOUNT_ID
+
+        original_equity = account_repo.get_current_equity(SIM_US_ACCOUNT_ID)
+        page.set_sim_us_init(1000.0)
+        page.reset_sim_us()
+        # equity 沒變 (使用者取消)
+        equity_after = account_repo.get_current_equity(SIM_US_ACCOUNT_ID)
+        assert equity_after.amount == original_equity.amount
+
+    def test_reset_tw_clears_positions(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+        from datetime import UTC, datetime
+        from decimal import Decimal
+
+        from stocks_trading.domain.market import Market
+        from stocks_trading.domain.symbol import Symbol
+        from stocks_trading.storage.positions_repository import Position
+        from stocks_trading.storage.seed_accounts import SIM_TW_ACCOUNT_ID
+
+        page, _, positions_repo, _ = self._build_page(
+            qtbot, config, tmp_path, confirm=True
+        )
+        # 先 seed 一筆持倉
+        positions_repo.upsert(
+            Position(
+                account_id=SIM_TW_ACCOUNT_ID,
+                symbol=Symbol("0050", Market.TW),
+                qty=1,
+                avg_price=Decimal("180"),
+                stop_loss=None,
+                opened_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            )
+        )
+        page.reset_sim_tw()
+        assert positions_repo.find_by_account(SIM_TW_ACCOUNT_ID) == []

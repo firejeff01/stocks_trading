@@ -103,6 +103,19 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     dashboard = DashboardPage()
     _refresh_dashboard(dashboard, account_repo)
 
+    # Paper Trading reset service (SettingsPage 需要)
+    from stocks_trading.paper_trading.reset_service import ResetService
+    from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
+    from stocks_trading.storage.positions_repository import PositionsRepository
+
+    positions_repo = PositionsRepository(db_path=db_path)
+    daily_pnl_repo = DailyPnlRepository(db_path=db_path)
+    reset_service = ResetService(
+        positions_repo=positions_repo,
+        daily_pnl_repo=daily_pnl_repo,
+        account_repo=account_repo,
+    )
+
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
     pages: dict[PageId, QWidget] = {
         PageId.DASHBOARD: dashboard,
@@ -115,7 +128,11 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),
         PageId.SIGNAL_LOG: SignalLogPage(),
-        PageId.SETTINGS: SettingsPage(config=config),
+        PageId.SETTINGS: SettingsPage(
+            config=config,
+            account_repo=account_repo,
+            reset_service=reset_service,
+        ),
     }
 
     # 6. 主視窗 (v1.0 強制 SIM 模式，LIVE 留給 v1.5)
