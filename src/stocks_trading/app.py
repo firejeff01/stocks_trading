@@ -112,13 +112,16 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
         account_repo=account_repo,
     )
 
-    dashboard = DashboardPage()
-    _refresh_dashboard(
-        dashboard,
-        account_repo,
-        positions_repo=positions_repo,
-        daily_pnl_repo=daily_pnl_repo,
-    )
+    def refresh() -> None:
+        _refresh_dashboard(
+            dashboard,
+            account_repo,
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+        )
+
+    dashboard = DashboardPage(on_refresh=refresh)
+    refresh()
 
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
     pages: dict[PageId, QWidget] = {

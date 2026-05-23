@@ -6,6 +6,7 @@ SIM-TW / SIM-US 各自 KPI + 績效曲線 + 持倉表 + 最近訊號表．
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QTableWidget,
@@ -104,9 +106,17 @@ class _EquityCurveWidget(QWidget):
 
 
 class DashboardPage(QWidget):
-    def __init__(self) -> None:
+    def __init__(
+        self, *, on_refresh: Callable[[], None] | None = None
+    ) -> None:
         super().__init__()
         self.setObjectName("surface")
+        self._on_refresh = on_refresh
+        # 重新整理按鈕 — CLI 跑完 daily-routine 後可手動更新 GUI
+        self._refresh_button = QPushButton("重新整理")
+        self._refresh_button.setObjectName("ghost")
+        self._refresh_button.setEnabled(on_refresh is not None)
+        self._refresh_button.clicked.connect(self._on_refresh_clicked)
         # SIM 帳本各 2 個 KPI
         self._kpi_sim_tw_equity = _KpiCard("SIM-TW 帳戶總值")
         self._kpi_sim_tw_today = _KpiCard("SIM-TW 今日損益")
@@ -253,11 +263,21 @@ class DashboardPage(QWidget):
     def signals_row_count(self) -> int:
         return self._signals_table.rowCount()
 
+    def _on_refresh_clicked(self) -> None:
+        if self._on_refresh is not None:
+            self._on_refresh()
+
     # ---- UI build ----
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(12)
+
+        # 第零列：標題 + 重新整理按鈕
+        header_row = QHBoxLayout()
+        header_row.addStretch(1)
+        header_row.addWidget(self._refresh_button)
+        outer.addLayout(header_row)
 
         # 第一列：SIM-TW + SIM-US 各 2 個 KPI (共 4 個卡)
         sim_kpi_row = QHBoxLayout()

@@ -118,6 +118,28 @@ class TestSimKpi:
         assert text.startswith("-") and "15" in text
 
 
+class TestRefreshButton:
+    """重新整理按鈕 — 注入式 callback，按下執行 caller 提供的 refresh 邏輯．"""
+
+    def test_no_callback_button_disabled(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        # 沒注入 callback 時按鈕應 disabled (避免按了沒反應)
+        assert page._refresh_button.isEnabled() is False
+
+    def test_callback_invoked_on_click(self, qtbot: QtBot) -> None:
+        calls: list[int] = []
+
+        def refresh() -> None:
+            calls.append(1)
+
+        page = DashboardPage(on_refresh=refresh)
+        qtbot.addWidget(page)
+        assert page._refresh_button.isEnabled() is True
+        page._refresh_button.click()
+        assert calls == [1]
+
+
 class TestEquityCurve:
     """績效曲線 — 兩個市場分開繪製，接收 (date, equity_amount) 點．"""
 
