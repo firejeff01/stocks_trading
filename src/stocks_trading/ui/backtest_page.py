@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDateEdit,
     QDoubleSpinBox,
     QFormLayout,
@@ -86,6 +87,14 @@ class BacktestPage(QWidget):
 
         self._tickers_input = QLineEdit(_DEFAULT_TICKERS)
 
+        # 幣別選單 — Phase A 雙幣別：使用者選 TWD 或 USD (單幣別 portfolio)
+        # 用 text 而非 userData 避免 PySide6 把 StrEnum unwrap 成 plain str 造成
+        # currentData() 回傳值與 isinstance(Currency) 不符
+        self._currency_combo = QComboBox()
+        for cur in (Currency.USD, Currency.TWD):
+            self._currency_combo.addItem(cur.value)
+        self._currency_combo.setCurrentIndex(0)  # 預設 USD
+
         self._summary_label = QLabel("")
         self._final_equity_label = QLabel("")
         self._status_label = QLabel("")
@@ -118,6 +127,14 @@ class BacktestPage(QWidget):
     def set_tickers(self, tickers: list[str]) -> None:
         self._tickers_input.setText(", ".join(tickers))
 
+    def currency_value(self) -> Currency:
+        return Currency(self._currency_combo.currentText())
+
+    def set_currency(self, cur: Currency) -> None:
+        idx = self._currency_combo.findText(cur.value)
+        if idx >= 0:
+            self._currency_combo.setCurrentIndex(idx)
+
     def set_tickers_text(self, text: str) -> None:
         self._tickers_input.setText(text)
 
@@ -146,6 +163,22 @@ class BacktestPage(QWidget):
             return
 
         symbols = [self._symbol_for_ticker(t) for t in ticker_codes]
+
+        # Phase A 雙幣別：ticker 推導的幣別必須與所選幣別匹配
+        chosen_currency = self.currency_value()
+        bad = [
+            f"{s.code} ({s.market.currency.value})"
+            for s in symbols
+            if s.market.currency is not chosen_currency
+        ]
+        if bad:
+            self._status_label.setText(
+                f"✗ 標的幣別與所選 {chosen_currency.value} 不符："
+                f"{', '.join(bad)}"
+            )
+            self.backtest_finished.emit()
+            return
+
         start = self._qdate_to_date(self._start_date.date())
         end = self._qdate_to_date(self._end_date.date())
 
@@ -217,8 +250,11 @@ class BacktestPage(QWidget):
             db_path = Path(tmp) / "backtest.db"
             MigrationRunner(db_path=db_path, migrations_dir=MIGRATIONS_DIR).apply_pending()
 
-            # 預設用 USD 作幣別 (簡化；雙幣別回測 v1.5 再做)
-            initial = Money(Decimal(str(self.initial_capital_value())), Currency.USD)
+            # 採使用者所選幣別 (Phase A：單幣別 portfolio，TWD 或 USD)
+            initial = Money(
+                Decimal(str(self.initial_capital_value())),
+                self.currency_value(),
+            )
             portfolio = PortfolioState(initial_cash=initial)
             repo = SignalRepository(db_path=db_path)
             broker = SimulatedBroker(
@@ -286,7 +322,8 @@ class BacktestPage(QWidget):
         form.addRow(QLabel("標的 (CSV)"), self._tickers_input)
         form.addRow(QLabel("Lookback 天數"), self._lookback)
         form.addRow(QLabel("Top N"), self._top_n)
-        form.addRow(QLabel("初始資金 (USD)"), self._initial_capital)
+        form.addRow(QLabel("幣別"), self._currency_combo)
+        form.addRow(QLabel("初始資金"), self._initial_capital)
         form.addRow(QLabel("起始日期"), self._start_date)
         form.addRow(QLabel("結束日期"), self._end_date)
 

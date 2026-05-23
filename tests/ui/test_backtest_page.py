@@ -11,6 +11,7 @@ from decimal import Decimal
 from pytestqt.qtbot import QtBot
 
 from stocks_trading.domain.bar import Bar
+from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.market import Market
 from stocks_trading.domain.symbol import Symbol
 from stocks_trading.ui.backtest_page import BacktestPage
@@ -215,3 +216,67 @@ class TestRunWithBars:
         # 應該包含一些 metric 關鍵字
         assert "總報酬" in summary or "Total" in summary
         assert page.result_final_equity_text() != ""
+
+
+class TestCurrencySelector:
+    """Phase A 雙幣別：使用者選 TWD 或 USD，PortfolioState 用所選幣別建．"""
+
+    def test_default_currency_is_usd(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        # 既有預設標的是 SPY/QQQ/IWM 美股，預期幣別為 USD
+        assert page.currency_value() is Currency.USD
+
+    def test_set_currency_round_trip(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        page.set_currency(Currency.TWD)
+        assert page.currency_value() is Currency.TWD
+        page.set_currency(Currency.USD)
+        assert page.currency_value() is Currency.USD
+
+    def test_twd_backtest_uses_twd_in_result(self, qtbot: QtBot) -> None:
+        """選 TWD + 台股 ticker，跑完 final equity 應該是 TWD 而非 USD．"""
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        page.set_lookback_days(3)
+        page.set_top_n(1)
+        page.set_initial_capital(100_000)
+        page.set_currency(Currency.TWD)
+
+        # 台股 0050 (4 碼純數字 → TW market → TWD 幣別)
+        symbol_0050 = Symbol("0050", Market.TW)
+        bars = _ramp(date(2026, 1, 1), [str(100 + i) for i in range(30)])
+        page.run_with_bars(
+            bars_by_symbol={symbol_0050: bars},
+            start=date(2026, 1, 1),
+            end=date(2026, 1, 30),
+        )
+
+        equity_text = page.result_final_equity_text()
+        # Money __str__ TWD 顯示為 NT$
+        assert "NT$" in equity_text
+
+    def test_ticker_currency_mismatch_aborts_with_status(
+        self, qtbot: QtBot
+    ) -> None:
+        """所選幣別 USD 但帶台股 ticker 0050 → status ✗，不跑回測．"""
+        captured: dict[str, object] = {}
+
+        def fetcher(
+            symbols: list[Symbol], start: date, end: date
+        ) -> dict[Symbol, list[Bar]]:
+            captured["called"] = True
+            return {}
+
+        page = BacktestPage(data_fetcher=fetcher)
+        qtbot.addWidget(page)
+        page.set_currency(Currency.USD)
+        page.set_tickers(["0050"])  # 台股 → TWD，但選 USD
+
+        with qtbot.waitSignal(page.backtest_finished, timeout=3000):
+            page.run_with_fetcher()
+
+        assert "✗" in page._status_label.text()
+        # fetcher 不該被呼叫 (前置驗證失敗就退出)
+        assert "called" not in captured
