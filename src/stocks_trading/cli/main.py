@@ -13,7 +13,6 @@ import argparse
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from uuid import uuid4
 
 from stocks_trading import __version__
 from stocks_trading.cli.strategy_factory import AVAILABLE_STRATEGIES
@@ -138,7 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_daily_routine(args: argparse.Namespace) -> int:
-    """讀 config / 建依賴 / 呼叫 cli.daily_routine．返回 exit code．"""
+    """讀 config / 建依賴 / 對台股+美股各跑一輪 daily_routine．返回 exit code．"""
     # 延遲 import 避免 --help / --version 路徑也要載入這些重模組
     from stocks_trading.app import _build_market_data_router, _default_appdata_dir
     from stocks_trading.cli.daily_routine import daily_routine
@@ -146,9 +145,18 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     from stocks_trading.config.store import ConfigStore
     from stocks_trading.domain.mode import Mode
     from stocks_trading.notify.notification_service import NotificationService
+    from stocks_trading.paper_trading.fee_calculator import FeeConfig
+    from stocks_trading.paper_trading.service import PaperTradingService
     from stocks_trading.security.dpapi import DpapiCipher
     from stocks_trading.storage import MIGRATIONS_DIR
+    from stocks_trading.storage.account_repository import AccountRepository
+    from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
     from stocks_trading.storage.migration import MigrationRunner
+    from stocks_trading.storage.positions_repository import PositionsRepository
+    from stocks_trading.storage.seed_accounts import (
+        SIM_TW_ACCOUNT_ID,
+        SIM_US_ACCOUNT_ID,
+    )
     from stocks_trading.storage.signal_repository import SignalRepository
 
     appdata = _default_appdata_dir()
@@ -162,27 +170,64 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
         cipher=DpapiCipher(),
     )
     router = _build_market_data_router(config)
-    repo = SignalRepository(db_path=db_path)
-    strategy = build_strategy(
-        args.strategy, lookback_days=args.lookback, top_n=args.top_n
+
+    # 共用 paper trading service (兩個帳本共用同一份 fee_config)
+    signal_repo = SignalRepository(db_path=db_path)
+    positions_repo = PositionsRepository(db_path=db_path)
+    daily_pnl_repo = DailyPnlRepository(db_path=db_path)
+    account_repo = AccountRepository(db_path=db_path)
+    fee_config = FeeConfig()  # 用預設 (與 settings 整合留 commit 4)
+    paper_service = PaperTradingService(
+        signal_repo=signal_repo,
+        positions_repo=positions_repo,
+        daily_pnl_repo=daily_pnl_repo,
+        account_repo=account_repo,
+        fee_config=fee_config,
+        max_positions=4,
     )
+
     notify = (
         None
         if args.dry_run
         else NotificationService.from_config(config=config)
     )
 
-    count = daily_routine(
-        tickers=args.tickers,
-        router=router,
-        signal_repo=repo,
-        strategy=strategy,
-        account_id=uuid4(),
-        notification_service=notify,
-        mode=Mode.SIM,
-        summary_date=date.today(),
-    )
-    print(f"daily-routine 完成：寫入 {count} 個 signal")
+    # 依市場分流：4 碼純數字 → TW，其餘 → US
+    tickers: list[str] = args.tickers
+    tw_tickers = [t for t in tickers if t.isdigit() and len(t) == 4]
+    us_tickers = [t for t in tickers if not (t.isdigit() and len(t) == 4)]
+
+    total_new = 0
+    total_settled = 0
+    today = date.today()
+    for market_label, t_list, acct in (
+        ("TW", tw_tickers, SIM_TW_ACCOUNT_ID),
+        ("US", us_tickers, SIM_US_ACCOUNT_ID),
+    ):
+        if not t_list:
+            continue
+        strategy = build_strategy(
+            args.strategy, lookback_days=args.lookback, top_n=args.top_n
+        )
+        result = daily_routine(
+            tickers=t_list,
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=paper_service,
+            strategy=strategy,
+            account_id=acct,
+            notification_service=notify,
+            mode=Mode.SIM,
+            summary_date=today,
+        )
+        print(
+            f"[{market_label}] new={result.new_signals} "
+            f"settled={result.settled_signals} "
+            f"equity={result.equity_snapshot.equity}"
+        )
+        total_new += result.new_signals
+        total_settled += result.settled_signals
+    print(f"daily-routine 完成：新增 {total_new} signals、結算 {total_settled}")
     return 0
 
 
