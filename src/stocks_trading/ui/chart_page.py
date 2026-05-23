@@ -317,16 +317,19 @@ class ChartPage(QWidget):
         charts_layout.setContentsMargins(0, 0, 0, 0)
         charts_layout.setSpacing(4)
 
-        # 各副圖保有足夠閱讀高度；總高度 = 320+160*3 = 800 (含 spacing)
-        self._kline.setMinimumHeight(320)
-        self._volume.setMinimumHeight(160)
-        self._rsi.setMinimumHeight(160)
-        self._macd.setMinimumHeight(160)
+        # K 線維持原本最小高 180，副圖拉到 150 不再被擠扁．
+        # 視窗放大時 stretch=5,1,1,1 仍讓主圖佔大頭、副圖等比分配；
+        # 視窗高度不足以容納 180+150*3=630 時，外層 QScrollArea 出現
+        # 右側「單一」垂直滾軸 (非每張圖一條)．
+        self._kline.setMinimumHeight(180)
+        self._volume.setMinimumHeight(150)
+        self._rsi.setMinimumHeight(150)
+        self._macd.setMinimumHeight(150)
 
         charts_layout.addWidget(self._kline, 5)
-        charts_layout.addWidget(self._volume, 2)
-        charts_layout.addWidget(self._rsi, 2)
-        charts_layout.addWidget(self._macd, 2)
+        charts_layout.addWidget(self._volume, 1)
+        charts_layout.addWidget(self._rsi, 1)
+        charts_layout.addWidget(self._macd, 1)
 
         # 重點：包進 QScrollArea，內容超過視窗時垂直滾動而非壓縮副圖
         charts_scroll = QScrollArea()
