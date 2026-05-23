@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stocks_trading"
+version = "0.1.0.dev0"
+description = "Personal automated stock trading system (TW via Shioaji + US via Email signal)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Jeff Lin", email = "firejeff01@hotmail.com" }]
+
+# Runtime dependencies grow per milestone — start minimal (M0 only needs stdlib + a few)
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.1",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "freezegun>=1.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---- pytest ----
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--showlocals",
+  "-vv",
+]
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = ["error"]
+
+# ---- ruff ----
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",   # pycodestyle / pyflakes
+  "I",             # isort
+  "B",             # bugbear
+  "UP",            # pyupgrade
+  "SIM",           # simplify
+  "RUF",           # ruff-specific
+  "N",             # pep8-naming
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]  # allow assert in tests
+
+# ---- mypy ----
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_any_unimported = true
+no_implicit_reexport = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false  # tests can omit type hints
+
+# ---- coverage ----
+[tool.coverage.run]
+source = ["src/stocks_trading"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+show_missing = true
