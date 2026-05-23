@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPicture
+from PySide6.QtGui import QColor, QPainter, QPen, QPicture
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from stocks_trading.domain.bar import Bar
@@ -76,19 +76,34 @@ class CandlestickItem(pg.GraphicsObject):  # type: ignore[misc,no-any-unimported
 
     def _generate_picture(self) -> None:
         painter = QPainter(self._picture)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         w = self._ONE_DAY_SECONDS * 0.35  # 蠟燭體一半寬度 (秒)
+
         for x, o, h, lo, c in self._data:
             color = self._up_color if c >= o else self._down_color
-            painter.setPen(color)
-            painter.setBrush(color)
-            # 影線
-            painter.drawLine(QPointF(x, lo), QPointF(x, h))
-            # 實體 (確保 height > 0 才畫得出來)
             body_h = abs(c - o)
-            if body_h < (h - lo) * 0.01:
-                body_h = (h - lo) * 0.01 if (h - lo) > 0 else 0.001
+
+            # 影線：cosmetic pen (1px、不隨縮放變粗)；同色但細
+            wick_pen = QPen(color)
+            wick_pen.setCosmetic(True)
+            wick_pen.setWidth(1)
+            painter.setPen(wick_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawLine(QPointF(x, lo), QPointF(x, h))
+
+            # Doji 特例：開盤 ≈ 收盤 → 畫水平短線取代矩形
+            if body_h == 0 or body_h < (h - lo) * 0.005:
+                painter.drawLine(QPointF(x - w, o), QPointF(x + w, o))
+                continue
+
+            # 實體：填滿色 + 同色 cosmetic 邊框 (邊框讓蠟燭俐落)
+            body_pen = QPen(color)
+            body_pen.setCosmetic(True)
+            body_pen.setWidth(1)
+            painter.setPen(body_pen)
+            painter.setBrush(color)
             painter.drawRect(QRectF(x - w, min(o, c), 2 * w, body_h))
+
         painter.end()
 
     def paint(self, painter: QPainter, *_args: object) -> None:
@@ -153,24 +168,31 @@ class KLineChart(QWidget):
         self._legend_label = QLabel("")
         self._legend_label.setObjectName("muted")
 
-        # OHLC tooltip
-        self._tooltip_label = QLabel("")
+        # OHLC tooltip — 加大字 + 半透明背景方便視覺辨識
+        self._tooltip_label = QLabel("移動滑鼠到蠟燭上以顯示 OHLC")
         font = self._tooltip_label.font()
         font.setFamily("Consolas")
+        font.setPointSize(font.pointSize() + 1)
         self._tooltip_label.setFont(font)
         self._tooltip_label.setStyleSheet(
-            f"color: {self._theme.fg}; background: transparent; padding: 2px 6px;"
+            f"color: {self._theme.fg}; background: rgba(127,127,127,0.08); "
+            f"padding: 4px 10px; border-radius: 6px;"
         )
 
         # Crosshair
-        crosshair_pen = pg.mkPen(self._theme.muted, width=0.8, style=Qt.PenStyle.DashLine)
+        crosshair_pen = pg.mkPen(self._theme.muted, width=1.0, style=Qt.PenStyle.DashLine)
         self._v_line = pg.InfiniteLine(angle=90, movable=False, pen=crosshair_pen)
         self._h_line = pg.InfiniteLine(angle=0, movable=False, pen=crosshair_pen)
         self._v_line.setVisible(False)
         self._h_line.setVisible(False)
         self._plot.addItem(self._v_line, ignoreBounds=True)
         self._plot.addItem(self._h_line, ignoreBounds=True)
-        self._plot.scene().sigMouseMoved.connect(self._on_mouse_moved)
+        # 用 SignalProxy 節流 + 持引用避免 GC (pyqtgraph 官方建議)
+        self._mouse_proxy = pg.SignalProxy(
+            self._plot.scene().sigMouseMoved,
+            rateLimit=60,
+            slot=self._on_mouse_moved_proxy,
+        )
 
         # Layout: header (tooltip + legend) + chart
         outer = QVBoxLayout(self)
@@ -267,9 +289,19 @@ class KLineChart(QWidget):
             )
         self._legend_label.setText("&nbsp;&nbsp;".join(legend_parts))
 
+    def _on_mouse_moved_proxy(self, evt: tuple[object, ...]) -> None:
+        """SignalProxy 把原 signal 參數包成 tuple．"""
+        if not evt:
+            return
+        self._on_mouse_moved(evt[0])
+
     def _on_mouse_moved(self, pos: object) -> None:
         if not self._bars:
-            self._tooltip_label.setText("")
+            return
+        # 滑鼠必須在 plot 場景區域內才更新；超出就隱藏 crosshair
+        if not self._plot.sceneBoundingRect().contains(pos):
+            self._v_line.setVisible(False)
+            self._h_line.setVisible(False)
             return
         view_box = self._plot.plotItem.vb
         if view_box is None:
@@ -277,7 +309,6 @@ class KLineChart(QWidget):
         mouse_point = view_box.mapSceneToView(pos)
         x_value = mouse_point.x()
 
-        # 找最近的 timestamp
         idx = self._nearest_bar_index(x_value)
         if idx < 0:
             return
