@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from stocks_trading.config.store import ConfigStore
 from stocks_trading.data.market_data_router import MarketDataRouter
+from stocks_trading.data.name_resolver import yfinance_name_resolver
 from stocks_trading.data.shioaji_provider import ShioajiDataProvider
 from stocks_trading.data.yfinance_provider import YFinanceProvider
 from stocks_trading.domain.bar import Bar
@@ -109,6 +110,7 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
             data_fetcher=chart_fetcher,
             provider_label_fn=router.last_provider_used,
             theme_manager=theme,
+            name_resolver=yfinance_name_resolver,
         ),
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),

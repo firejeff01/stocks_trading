@@ -90,24 +90,115 @@ class TestSymbolLoading:
         assert page._kline.bar_count() == 30
 
 
-class TestIndicatorToggle:
-    def test_default_visible(self, qtbot: QtBot) -> None:
+class TestStockInfoBar:
+    """載入後固定顯示代號 / 名稱 / 股價 / 漲跌幅．"""
+
+    def test_info_empty_before_load(self, qtbot: QtBot) -> None:
+        page = ChartPage()
+        qtbot.addWidget(page)
+        info = page.current_stock_info()
+        # 預設未載入：四個欄位都是空 / dash
+        assert info["code"] == ""
+        assert info["name"] == ""
+        assert info["close"] == ""
+        assert info["change"] == ""
+
+    def test_info_populated_after_load(self, qtbot: QtBot) -> None:
+        page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(30))
+        qtbot.addWidget(page)
+        page.set_symbol_text("0050")
+        page.load_now()
+        info = page.current_stock_info()
+        # _bars(30) 最後一筆 close = 129 (從 100 遞增)，前一筆 = 128 → +1.00 / +0.78%
+        assert info["code"] == "0050"
+        assert info["close"] == "129.00"
+        # 漲跌幅文字含正負號 + 百分比
+        assert "+1.00" in info["change"]
+        assert "+0.78%" in info["change"]
+
+    def test_info_name_from_resolver(self, qtbot: QtBot) -> None:
+        resolver_calls: list[str] = []
+
+        def fake_resolver(symbol: Symbol) -> str | None:
+            resolver_calls.append(symbol.code)
+            return "元大台灣50"
+
+        page = ChartPage(
+            data_fetcher=lambda _s, _start, _end: _bars(30),
+            name_resolver=fake_resolver,
+        )
+        qtbot.addWidget(page)
+        page.set_symbol_text("0050")
+        page.load_now()
+        info = page.current_stock_info()
+        assert info["name"] == "元大台灣50"
+        assert resolver_calls == ["0050"]
+
+    def test_info_name_falls_back_when_resolver_returns_none(
+        self, qtbot: QtBot
+    ) -> None:
+        page = ChartPage(
+            data_fetcher=lambda _s, _start, _end: _bars(30),
+            name_resolver=lambda _s: None,
+        )
+        qtbot.addWidget(page)
+        page.set_symbol_text("0050")
+        page.load_now()
+        info = page.current_stock_info()
+        assert info["name"] == "—"
+
+    def test_info_name_swallows_resolver_exception(
+        self, qtbot: QtBot
+    ) -> None:
+        def bad_resolver(_s: Symbol) -> str | None:
+            raise RuntimeError("network down")
+
+        page = ChartPage(
+            data_fetcher=lambda _s, _start, _end: _bars(30),
+            name_resolver=bad_resolver,
+        )
+        qtbot.addWidget(page)
+        page.set_symbol_text("0050")
+        page.load_now()
+        # 名稱解析失敗不應該影響圖表載入
+        assert page._kline.bar_count() == 30
+        info = page.current_stock_info()
+        assert info["name"] == "—"
+
+
+class TestSubplotSwitch:
+    """副圖採切換顯示 (radio)：一次只顯示一張，預設 Volume．"""
+
+    def test_default_is_volume(self, qtbot: QtBot) -> None:
         page = ChartPage()
         qtbot.addWidget(page)
         assert page.is_volume_visible() is True
+        assert page.is_rsi_visible() is False
+        assert page.is_macd_visible() is False
+
+    def test_switch_to_rsi(self, qtbot: QtBot) -> None:
+        page = ChartPage()
+        qtbot.addWidget(page)
+        page.set_rsi_visible(True)
         assert page.is_rsi_visible() is True
-        assert page.is_macd_visible() is True
-
-    def test_toggle_volume(self, qtbot: QtBot) -> None:
-        page = ChartPage()
-        qtbot.addWidget(page)
-        page.set_volume_visible(False)
+        # 其他副圖自動關閉 (radio 行為)
         assert page.is_volume_visible() is False
+        assert page.is_macd_visible() is False
 
-    def test_toggle_rsi(self, qtbot: QtBot) -> None:
+    def test_switch_to_macd(self, qtbot: QtBot) -> None:
         page = ChartPage()
         qtbot.addWidget(page)
-        page.set_rsi_visible(False)
+        page.set_macd_visible(True)
+        assert page.is_macd_visible() is True
+        assert page.is_volume_visible() is False
+        assert page.is_rsi_visible() is False
+
+    def test_switch_back_to_volume(self, qtbot: QtBot) -> None:
+        page = ChartPage()
+        qtbot.addWidget(page)
+        page.set_rsi_visible(True)
+        page.set_volume_visible(True)
+        assert page.is_volume_visible() is True
         assert page.is_rsi_visible() is False
 
 

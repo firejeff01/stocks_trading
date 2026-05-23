@@ -16,7 +16,7 @@ from datetime import date
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
+    QButtonGroup,
     QComboBox,
     QDateEdit,
     QHBoxLayout,
@@ -25,8 +25,11 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +50,8 @@ from stocks_trading.ui.widgets.subplots import MACDPlot, RSIPlot, VolumeBars
 
 ChartDataFetcher = Callable[[Symbol, date, date], list[Bar]]
 ProviderLabelFn = Callable[[], str]
+# 解析股票名稱 (best-effort)；None 表示不知道．實作可包 yfinance Ticker.info 等．
+NameResolver = Callable[[Symbol], "str | None"]
 
 # 各週期對應的 bar 寬度 (秒) — 用於蠟燭/量柱繪製
 _BAR_SECONDS: dict[Timeframe, float] = {
@@ -84,16 +89,24 @@ class ChartPage(QWidget):
         data_fetcher: ChartDataFetcher | None = None,
         provider_label_fn: ProviderLabelFn | None = None,
         theme_manager: ThemeManager | None = None,
+        name_resolver: NameResolver | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("surface")
         self._data_fetcher = data_fetcher
         self._provider_label_fn = provider_label_fn
         self._theme_manager = theme_manager
+        self._name_resolver = name_resolver
         self._chart_theme = _palette_for(theme_manager)
         self._bars: list[Bar] = []  # 永遠保存原始日 bars
         self._current_timeframe: Timeframe = Timeframe.DAILY
         self._pattern_detector = PatternDetector()
+        self._stock_info: dict[str, str] = {
+            "code": "",
+            "name": "",
+            "close": "",
+            "change": "",
+        }
 
         # 輸入欄
         self._symbol_input = QLineEdit()
@@ -120,13 +133,17 @@ class ChartPage(QWidget):
         self._timeframe_combo.setCurrentIndex(0)  # 預設日 K
         self._timeframe_combo.currentIndexChanged.connect(self._on_timeframe_changed)
 
-        # 副圖 toggle
-        self._chk_volume = QCheckBox("Volume")
-        self._chk_volume.setChecked(True)
-        self._chk_rsi = QCheckBox("RSI")
-        self._chk_rsi.setChecked(True)
-        self._chk_macd = QCheckBox("MACD")
-        self._chk_macd.setChecked(True)
+        # 副圖切換 — radio 行為 (一次只顯示一張)，預設 Volume
+        # exclusive QButtonGroup 確保一次只有一個被按下；index: 0=Vol / 1=RSI / 2=MACD
+        self._rdo_volume = QRadioButton("Volume")
+        self._rdo_volume.setChecked(True)
+        self._rdo_rsi = QRadioButton("RSI")
+        self._rdo_macd = QRadioButton("MACD")
+        self._subplot_group = QButtonGroup(self)
+        self._subplot_group.setExclusive(True)
+        self._subplot_group.addButton(self._rdo_volume, 0)
+        self._subplot_group.addButton(self._rdo_rsi, 1)
+        self._subplot_group.addButton(self._rdo_macd, 2)
 
         # 圖表元件 (傳入主題)
         self._kline = KLineChart(theme=self._chart_theme)
@@ -134,16 +151,34 @@ class ChartPage(QWidget):
         self._rsi = RSIPlot(theme=self._chart_theme)
         self._macd = MACDPlot(theme=self._chart_theme)
 
+        # 用 QStackedWidget 切換顯示的副圖 (index 0=Volume / 1=RSI / 2=MACD)
+        self._subplot_stack = QStackedWidget()
+        self._subplot_stack.addWidget(self._volume)
+        self._subplot_stack.addWidget(self._rsi)
+        self._subplot_stack.addWidget(self._macd)
+
         self._patterns_list = QListWidget()
 
-        self._chk_volume.toggled.connect(self._volume.setVisible)
-        self._chk_rsi.toggled.connect(self._rsi.setVisible)
-        self._chk_macd.toggled.connect(self._macd.setVisible)
+        self._subplot_group.idToggled.connect(self._on_subplot_toggled)
 
         self._status_label = QLabel("")
         self._status_label.setObjectName("muted")
 
+        # 股票資訊條：代號 / 名稱 / 收盤 / 漲跌
+        self._info_code_label = QLabel("")
+        self._info_code_label.setObjectName("stockCode")
+        self._info_name_label = QLabel("")
+        self._info_name_label.setObjectName("stockName")
+        self._info_close_label = QLabel("")
+        self._info_close_label.setObjectName("stockClose")
+        self._info_change_label = QLabel("")
+        self._info_change_label.setObjectName("stockChange")
+
         self._build_ui()
+
+    def _on_subplot_toggled(self, idx: int, checked: bool) -> None:
+        if checked:
+            self._subplot_stack.setCurrentIndex(idx)
 
     # ---- public API ----
     def current_symbol_text(self) -> str:
@@ -153,22 +188,30 @@ class ChartPage(QWidget):
         self._symbol_input.setText(text)
 
     def is_volume_visible(self) -> bool:
-        return self._chk_volume.isChecked()
+        return self._rdo_volume.isChecked()
 
     def is_rsi_visible(self) -> bool:
-        return self._chk_rsi.isChecked()
+        return self._rdo_rsi.isChecked()
 
     def is_macd_visible(self) -> bool:
-        return self._chk_macd.isChecked()
+        return self._rdo_macd.isChecked()
 
     def set_volume_visible(self, v: bool) -> None:
-        self._chk_volume.setChecked(v)
+        # radio 行為：True 表示切到 Volume；False 為相容舊呼叫者忽略
+        if v:
+            self._rdo_volume.setChecked(True)
 
     def set_rsi_visible(self, v: bool) -> None:
-        self._chk_rsi.setChecked(v)
+        if v:
+            self._rdo_rsi.setChecked(True)
 
     def set_macd_visible(self, v: bool) -> None:
-        self._chk_macd.setChecked(v)
+        if v:
+            self._rdo_macd.setChecked(True)
+
+    def current_stock_info(self) -> dict[str, str]:
+        """目前顯示的股票資訊 (代號 / 名稱 / 收盤 / 漲跌)．"""
+        return dict(self._stock_info)
 
     def current_timeframe(self) -> Timeframe:
         return self._current_timeframe
@@ -225,6 +268,7 @@ class ChartPage(QWidget):
         except Exception as exc:
             self._status_label.setText(f"✗ 抓取失敗：{exc}")
             self._render([])  # 清掉前一次圖避免誤導
+            self._clear_stock_info()
             return
 
         if not bars:
@@ -232,15 +276,60 @@ class ChartPage(QWidget):
                 f"✗ {symbol} 在 {start} ~ {end} 區間無資料 (確認代碼 / 日期)"
             )
             self._render([])
+            self._clear_stock_info()
             return
 
         provider_note = ""
         if self._provider_label_fn is not None:
             provider_note = f" via {self._provider_label_fn()}"
         self._render(bars)
+        self._update_stock_info(symbol, bars)
         self._status_label.setText(
             f"✓ {symbol} 載入 {len(bars)} 根 bar{provider_note}"
         )
+
+    def _update_stock_info(self, symbol: Symbol, bars: list[Bar]) -> None:
+        """從已載入的 bars 計算收盤/漲跌；名稱由 resolver best-effort 取得．"""
+        last = bars[-1]
+        prev_close = bars[-2].close if len(bars) >= 2 else last.close
+        close = float(last.close)
+        delta = close - float(prev_close)
+        pct = (delta / float(prev_close) * 100.0) if prev_close != 0 else 0.0
+        sign = "+" if delta >= 0 else ""
+        change_text = f"{sign}{delta:.2f} ({sign}{pct:.2f}%)"
+
+        name = "—"
+        if self._name_resolver is not None:
+            try:
+                resolved = self._name_resolver(symbol)
+            except Exception:
+                resolved = None
+            if resolved:
+                name = resolved
+
+        self._stock_info = {
+            "code": symbol.code,
+            "name": name,
+            "close": f"{close:.2f}",
+            "change": change_text,
+        }
+        self._info_code_label.setText(symbol.code)
+        self._info_name_label.setText(name)
+        self._info_close_label.setText(self._stock_info["close"])
+        self._info_change_label.setText(change_text)
+
+        # 顏色：上漲綠 / 下跌紅 (與 K 線蠟燭一致：美股慣例)
+        up = delta >= 0
+        color = "#16a34a" if up else "#dc2626"
+        self._info_close_label.setStyleSheet(f"color: {color};")
+        self._info_change_label.setStyleSheet(f"color: {color};")
+
+    def _clear_stock_info(self) -> None:
+        self._stock_info = {"code": "", "name": "", "close": "", "change": ""}
+        self._info_code_label.setText("")
+        self._info_name_label.setText("")
+        self._info_close_label.setText("")
+        self._info_change_label.setText("")
 
     def _render(self, bars: list[Bar]) -> None:
         # 保留原始日 bars，方便切週期重繪
@@ -278,6 +367,31 @@ class ChartPage(QWidget):
 
     # ---- UI build ----
     def _build_ui(self) -> None:
+        # 股票資訊欄樣式 (副圖切換按鈕保持原本 QRadioButton 預設外觀)
+        self.setStyleSheet(
+            """
+            QLabel#stockCode {
+                font-size: 18pt;
+                font-weight: 700;
+                padding-right: 8px;
+            }
+            QLabel#stockName {
+                font-size: 13pt;
+                color: #6b7280;
+                padding-right: 16px;
+            }
+            QLabel#stockClose {
+                font-size: 20pt;
+                font-weight: 700;
+                padding-right: 10px;
+            }
+            QLabel#stockChange {
+                font-size: 13pt;
+                font-weight: 600;
+            }
+            """
+        )
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(6)
@@ -297,48 +411,55 @@ class ChartPage(QWidget):
         row1.addWidget(QLabel("週期"))
         row1.addWidget(self._timeframe_combo)
         row1.addStretch(1)
-        # 第一列同列加上副圖 toggle (省空間)
+        # 第一列同列加上副圖切換 (一次顯示一張)
         row1.addWidget(QLabel("副圖："))
-        row1.addWidget(self._chk_volume)
-        row1.addWidget(self._chk_rsi)
-        row1.addWidget(self._chk_macd)
+        row1.addWidget(self._rdo_volume)
+        row1.addWidget(self._rdo_rsi)
+        row1.addWidget(self._rdo_macd)
         outer.addLayout(row1)
+
+        # 股票資訊條 (代號 / 名稱 / 股價 / 漲跌)
+        info_row = QHBoxLayout()
+        info_row.setSpacing(0)
+        info_row.addWidget(self._info_code_label)
+        info_row.addWidget(self._info_name_label)
+        info_row.addWidget(self._info_close_label)
+        info_row.addWidget(self._info_change_label)
+        info_row.addStretch(1)
+        outer.addLayout(info_row)
 
         outer.addWidget(self._status_label)
 
         # 中段：左主圖+副圖直排 ; 右：形態列表 (Splitter 可拖動)
         body = QSplitter(Qt.Orientation.Horizontal)
 
-        # charts 內容容器 — 套在 QScrollArea 內，視窗不夠高就出現垂直滾軸
-        # 避免副圖被擠到看不見刻度
+        # charts 內容容器 — K 線常駐 + 切換式副圖 (一次一張)
         charts_inner = QWidget()
         charts_inner.setMinimumWidth(400)
         charts_layout = QVBoxLayout(charts_inner)
         charts_layout.setContentsMargins(0, 0, 0, 0)
         charts_layout.setSpacing(4)
 
-        # K 線維持原本最小高 180，副圖拉到 150 不再被擠扁．
-        # 視窗放大時 stretch=5,1,1,1 仍讓主圖佔大頭、副圖等比分配；
-        # 視窗高度不足以容納 180+150*3=630 時，外層 QScrollArea 出現
-        # 右側「單一」垂直滾軸 (非每張圖一條)．
-        self._kline.setMinimumHeight(180)
-        self._volume.setMinimumHeight(150)
-        self._rsi.setMinimumHeight(150)
-        self._macd.setMinimumHeight(150)
+        # 高度分配：K 線 ~70% / 副圖 ~30%
+        # - 用 QSizePolicy.Ignored 蓋掉 pyqtgraph PlotWidget 的預設 sizeHint
+        #   (~480px)，否則主圖會撐大到把副圖擠出視窗外
+        # - 一次只顯示一張副圖，每張視覺空間大很多，閱讀性提升
+        self._kline.setMinimumHeight(200)
+        self._subplot_stack.setMinimumHeight(140)
 
-        charts_layout.addWidget(self._kline, 5)
-        charts_layout.addWidget(self._volume, 1)
-        charts_layout.addWidget(self._rsi, 1)
-        charts_layout.addWidget(self._macd, 1)
+        for widget, vstretch in (
+            (self._kline, 7),
+            (self._subplot_stack, 3),
+        ):
+            sp = widget.sizePolicy()
+            sp.setVerticalPolicy(QSizePolicy.Policy.Ignored)
+            sp.setVerticalStretch(vstretch)
+            widget.setSizePolicy(sp)
 
-        # 重點：包進 QScrollArea，內容超過視窗時垂直滾動而非壓縮副圖
-        charts_scroll = QScrollArea()
-        charts_scroll.setWidgetResizable(True)
-        charts_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        charts_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        charts_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        charts_scroll.setWidget(charts_inner)
-        body.addWidget(charts_scroll)
+        charts_layout.addWidget(self._kline, 7)
+        charts_layout.addWidget(self._subplot_stack, 3)
+
+        body.addWidget(charts_inner)
 
         side = QWidget()
         side.setMinimumWidth(180)
@@ -354,4 +475,14 @@ class ChartPage(QWidget):
         body.setStretchFactor(0, 5)
         body.setStretchFactor(1, 1)
         body.setSizes([900, 240])
-        outer.addWidget(body, 1)
+
+        # 整個 body 包進 QScrollArea：四張圖塞得進視窗時無滾軸，視窗高度
+        # 不夠 (body < 約 460px) 時出現「單一」垂直滾軸，使用者可滾動整個
+        # 介面看到所有圖．
+        body_scroll = QScrollArea()
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        body_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body_scroll.setWidget(body)
+        outer.addWidget(body_scroll, 1)
