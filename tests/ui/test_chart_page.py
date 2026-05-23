@@ -50,6 +50,12 @@ class TestChartPageConstruction:
         assert page._load_button.isEnabled() is True
 
 
+def _load_and_wait(page: ChartPage, qtbot: QtBot, timeout_ms: int = 3000) -> None:
+    """共用 helper：呼叫 load_now() 並等 chart_loaded signal．"""
+    with qtbot.waitSignal(page.chart_loaded, timeout=timeout_ms):
+        page.load_now()
+
+
 class TestSymbolLoading:
     def test_load_calls_fetcher_with_symbol(self, qtbot: QtBot) -> None:
         captured: dict[str, object] = {}
@@ -61,7 +67,7 @@ class TestSymbolLoading:
         page = ChartPage(data_fetcher=fetcher)
         qtbot.addWidget(page)
         page.set_symbol_text("SPY")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         sym = captured["symbol"]
         assert isinstance(sym, Symbol)
         assert sym.code == "SPY"
@@ -77,7 +83,7 @@ class TestSymbolLoading:
         page = ChartPage(data_fetcher=fetcher)
         qtbot.addWidget(page)
         page.set_symbol_text("0050")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         sym = captured["symbol"]
         assert isinstance(sym, Symbol)
         assert sym.market is Market.TW
@@ -86,8 +92,54 @@ class TestSymbolLoading:
         page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(30))
         qtbot.addWidget(page)
         page.set_symbol_text("SPY")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         assert page._kline.bar_count() == 30
+
+    def test_load_button_disabled_during_fetch(self, qtbot: QtBot) -> None:
+        from time import sleep
+
+        def slow(_s: Symbol, _start: date, _end: date) -> list[Bar]:
+            sleep(0.2)
+            return _bars(30)
+
+        page = ChartPage(data_fetcher=slow)
+        qtbot.addWidget(page)
+        page.set_symbol_text("SPY")
+        page.load_now()
+        assert page._load_button.isEnabled() is False
+        with qtbot.waitSignal(page.chart_loaded, timeout=3000):
+            pass
+        assert page._load_button.isEnabled() is True
+
+    def test_load_does_not_block_main_thread(self, qtbot: QtBot) -> None:
+        from time import perf_counter, sleep
+
+        def slow(_s: Symbol, _start: date, _end: date) -> list[Bar]:
+            sleep(0.4)
+            return _bars(30)
+
+        page = ChartPage(data_fetcher=slow)
+        qtbot.addWidget(page)
+        page.set_symbol_text("SPY")
+        t0 = perf_counter()
+        page.load_now()
+        elapsed = perf_counter() - t0
+        assert elapsed < 0.1, f"main thread blocked {elapsed:.3f}s"
+        with qtbot.waitSignal(page.chart_loaded, timeout=3000):
+            pass
+
+    def test_fetcher_error_shows_status(self, qtbot: QtBot) -> None:
+        def boom(_s: Symbol, _start: date, _end: date) -> list[Bar]:
+            raise RuntimeError("provider down")
+
+        page = ChartPage(data_fetcher=boom)
+        qtbot.addWidget(page)
+        page.set_symbol_text("SPY")
+        with qtbot.waitSignal(page.chart_loaded, timeout=3000):
+            page.load_now()
+        assert "✗" in page._status_label.text()
+        assert "provider down" in page._status_label.text()
+        assert page._load_button.isEnabled() is True
 
 
 class TestStockInfoBar:
@@ -107,7 +159,7 @@ class TestStockInfoBar:
         page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(30))
         qtbot.addWidget(page)
         page.set_symbol_text("0050")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         info = page.current_stock_info()
         # _bars(30) 最後一筆 close = 129 (從 100 遞增)，前一筆 = 128 → +1.00 / +0.78%
         assert info["code"] == "0050"
@@ -129,7 +181,7 @@ class TestStockInfoBar:
         )
         qtbot.addWidget(page)
         page.set_symbol_text("0050")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         info = page.current_stock_info()
         assert info["name"] == "元大台灣50"
         assert resolver_calls == ["0050"]
@@ -143,7 +195,7 @@ class TestStockInfoBar:
         )
         qtbot.addWidget(page)
         page.set_symbol_text("0050")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         info = page.current_stock_info()
         assert info["name"] == "—"
 
@@ -159,7 +211,7 @@ class TestStockInfoBar:
         )
         qtbot.addWidget(page)
         page.set_symbol_text("0050")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         # 名稱解析失敗不應該影響圖表載入
         assert page._kline.bar_count() == 30
         info = page.current_stock_info()
@@ -215,7 +267,7 @@ class TestTimeframeSelector:
         page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(30))
         qtbot.addWidget(page)
         page.set_symbol_text("SPY")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         daily_count = page._kline.bar_count()
         assert daily_count == 30
 
@@ -233,7 +285,7 @@ class TestTimeframeSelector:
         page = ChartPage(data_fetcher=lambda _s, _start, _end: _bars(60))
         qtbot.addWidget(page)
         page.set_symbol_text("SPY")
-        page.load_now()
+        _load_and_wait(page, qtbot)
         page.set_timeframe(Timeframe.MONTHLY)
         assert page.current_timeframe() is Timeframe.MONTHLY
         # 必有結果但比日 bar 少很多

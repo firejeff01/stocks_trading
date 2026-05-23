@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from stocks_trading.analytics.aggregator import Timeframe, aggregate_to_timeframe
 from stocks_trading.analytics.patterns import PatternDetector
+from stocks_trading.concurrency.async_fetcher import AsyncFetcher
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.market import Market
 from stocks_trading.domain.symbol import Symbol
@@ -83,6 +84,9 @@ def _palette_for(theme_manager: ThemeManager | None) -> ChartTheme:
 
 
 class ChartPage(QWidget):
+    # 載入流程結束 (含成功 / 失敗)；測試與外部訂閱者用於判斷流程結束．
+    chart_loaded = Signal()
+
     def __init__(
         self,
         *,
@@ -107,6 +111,9 @@ class ChartPage(QWidget):
             "close": "",
             "change": "",
         }
+        self._active_fetcher: AsyncFetcher[list[Bar]] | None = None
+        self._pending_symbol: Symbol | None = None
+        self._pending_range: tuple[date, date] | None = None
 
         # 輸入欄
         self._symbol_input = QLineEdit()
@@ -239,12 +246,15 @@ class ChartPage(QWidget):
         self._macd.set_theme(self._chart_theme)
 
     def load_now(self) -> None:
+        """背景抓資料 → 完成後渲染．非阻塞．"""
         if self._data_fetcher is None:
             self._status_label.setText("✗ 尚未注入資料源 (data_fetcher)")
+            self.chart_loaded.emit()
             return
         code = self._symbol_input.text().strip().upper()
         if not code:
             self._status_label.setText("✗ 請輸入標的代碼")
+            self.chart_loaded.emit()
             return
         market = (
             Market.TW if code.isdigit() and len(code) == 4 else Market.US
@@ -253,40 +263,64 @@ class ChartPage(QWidget):
             symbol = Symbol(code, market)
         except Exception as exc:
             self._status_label.setText(f"✗ 無效標的代碼：{exc}")
+            self.chart_loaded.emit()
             return
 
         start = self._qdate_to_date(self._start_date.date())
         end = self._qdate_to_date(self._end_date.date())
         self._status_label.setText(f"⏳ 抓取 {symbol} 中...")
-        # 立即重繪 status，避免使用者以為按了沒反應
-        from PySide6.QtWidgets import QApplication
+        self._load_button.setEnabled(False)
+        self._pending_symbol = symbol
+        self._pending_range = (start, end)
 
-        QApplication.processEvents()
-
-        try:
-            bars = self._data_fetcher(symbol, start, end)
-        except Exception as exc:
-            self._status_label.setText(f"✗ 抓取失敗：{exc}")
-            self._render([])  # 清掉前一次圖避免誤導
-            self._clear_stock_info()
-            return
-
-        if not bars:
-            self._status_label.setText(
-                f"✗ {symbol} 在 {start} ~ {end} 區間無資料 (確認代碼 / 日期)"
-            )
-            self._render([])
-            self._clear_stock_info()
-            return
-
-        provider_note = ""
-        if self._provider_label_fn is not None:
-            provider_note = f" via {self._provider_label_fn()}"
-        self._render(bars)
-        self._update_stock_info(symbol, bars)
-        self._status_label.setText(
-            f"✓ {symbol} 載入 {len(bars)} 根 bar{provider_note}"
+        fetcher = self._data_fetcher
+        worker: AsyncFetcher[list[Bar]] = AsyncFetcher(
+            lambda: fetcher(symbol, start, end)
         )
+        self._active_fetcher = worker
+        worker.finished_with_result.connect(self._on_load_done)
+        worker.failed.connect(self._on_load_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_load_done(self, bars: list[Bar]) -> None:
+        symbol = self._pending_symbol
+        try:
+            if symbol is None or self._pending_range is None:
+                return
+            start, end = self._pending_range
+            if not bars:
+                self._status_label.setText(
+                    f"✗ {symbol} 在 {start} ~ {end} 區間無資料 (確認代碼 / 日期)"
+                )
+                self._render([])
+                self._clear_stock_info()
+                return
+
+            provider_note = ""
+            if self._provider_label_fn is not None:
+                provider_note = f" via {self._provider_label_fn()}"
+            self._render(bars)
+            self._update_stock_info(symbol, bars)
+            self._status_label.setText(
+                f"✓ {symbol} 載入 {len(bars)} 根 bar{provider_note}"
+            )
+        finally:
+            self._reset_load_state()
+            self.chart_loaded.emit()
+
+    def _on_load_failed(self, exc: BaseException) -> None:
+        self._status_label.setText(f"✗ 抓取失敗：{exc}")
+        self._render([])
+        self._clear_stock_info()
+        self._reset_load_state()
+        self.chart_loaded.emit()
+
+    def _reset_load_state(self) -> None:
+        self._pending_symbol = None
+        self._pending_range = None
+        self._active_fetcher = None
+        self._load_button.setEnabled(self._data_fetcher is not None)
 
     def _update_stock_info(self, symbol: Symbol, bars: list[Bar]) -> None:
         """從已載入的 bars 計算收盤/漲跌；名稱由 resolver best-effort 取得．"""

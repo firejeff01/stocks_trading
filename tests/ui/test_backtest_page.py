@@ -84,11 +84,6 @@ class TestRunButton:
         assert page._run_button.isEnabled() is True
 
     def test_click_button_calls_fetcher(self, qtbot: QtBot) -> None:
-        from datetime import date
-
-        from stocks_trading.domain.market import Market
-        from stocks_trading.domain.symbol import Symbol
-
         captured: dict[str, object] = {}
 
         def fetcher(
@@ -105,11 +100,87 @@ class TestRunButton:
         page.set_lookback_days(3)
         page.set_top_n(1)
         page.set_tickers(["SPY"])
-        page.run_with_fetcher()
+
+        # 非同步：等 backtest_finished signal
+        with qtbot.waitSignal(page.backtest_finished, timeout=5000):
+            page.run_with_fetcher()
 
         assert "symbols" in captured
         # 結果應該顯示了 metrics
         assert page.result_summary_text() != ""
+
+
+class TestRunAsync:
+    """run_with_fetcher 非阻塞：抓資料移到 worker thread，UI 不卡．"""
+
+    def _slow_fetcher(self, delay_s: float = 0.2) -> object:
+        from time import sleep
+
+        def fetcher(
+            symbols: list[Symbol], start: date, end: date
+        ) -> dict[Symbol, list[Bar]]:
+            sleep(delay_s)
+            spy = Symbol("SPY", Market.US)
+            return {
+                spy: _ramp(
+                    date(2026, 1, 1), [str(100 + i) for i in range(15)]
+                )
+            }
+
+        return fetcher
+
+    def test_run_button_disabled_during_fetch(self, qtbot: QtBot) -> None:
+        page = BacktestPage(data_fetcher=self._slow_fetcher(0.3))  # type: ignore[arg-type]
+        qtbot.addWidget(page)
+        page.set_lookback_days(3)
+        page.set_top_n(1)
+        page.set_tickers(["SPY"])
+
+        page.run_with_fetcher()
+        # 啟動後立刻檢查 button 應該已 disabled
+        assert page._run_button.isEnabled() is False
+        # 等完成才會 re-enable
+        with qtbot.waitSignal(page.backtest_finished, timeout=5000):
+            pass
+        assert page._run_button.isEnabled() is True
+
+    def test_run_does_not_block_main_thread(self, qtbot: QtBot) -> None:
+        """同步呼叫 run_with_fetcher 應該立刻 return (不等抓資料)．"""
+        from time import perf_counter
+
+        page = BacktestPage(data_fetcher=self._slow_fetcher(0.5))  # type: ignore[arg-type]
+        qtbot.addWidget(page)
+        page.set_lookback_days(3)
+        page.set_top_n(1)
+        page.set_tickers(["SPY"])
+
+        t0 = perf_counter()
+        page.run_with_fetcher()
+        elapsed = perf_counter() - t0
+        # main thread 應 < 100ms 解除 (相對於 fetcher 的 500ms 阻塞)
+        assert elapsed < 0.1, f"main thread blocked {elapsed:.3f}s"
+        # 收尾：等完成才退出，避免 qtbot 殘留 worker
+        with qtbot.waitSignal(page.backtest_finished, timeout=5000):
+            pass
+
+    def test_fetcher_error_path(self, qtbot: QtBot) -> None:
+        """fetcher 拋例外時 status 顯示 ✗，按鈕 re-enable，不該 crash．"""
+
+        def boom(
+            symbols: list[Symbol], start: date, end: date
+        ) -> dict[Symbol, list[Bar]]:
+            raise RuntimeError("provider down")
+
+        page = BacktestPage(data_fetcher=boom)
+        qtbot.addWidget(page)
+        page.set_tickers(["SPY"])
+
+        with qtbot.waitSignal(page.backtest_finished, timeout=5000):
+            page.run_with_fetcher()
+
+        assert "✗" in page._status_label.text()
+        assert "provider down" in page._status_label.text()
+        assert page._run_button.isEnabled() is True
 
 
 class TestBacktestPageParams:

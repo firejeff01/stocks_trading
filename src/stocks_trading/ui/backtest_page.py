@@ -12,7 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QDateEdit,
     QDoubleSpinBox,
@@ -31,6 +31,7 @@ from stocks_trading.backtest.backtest_engine import BacktestEngine
 from stocks_trading.backtest.fill_engine import FillSettings
 from stocks_trading.backtest.portfolio_state import PortfolioState
 from stocks_trading.brokers.simulated_broker import SimulatedBroker
+from stocks_trading.concurrency.async_fetcher import AsyncFetcher
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.market import Market
@@ -49,10 +50,17 @@ _DEFAULT_TICKERS = "SPY, QQQ, IWM"
 
 
 class BacktestPage(QWidget):
+    # 回測結束 (含成功 / 失敗)；測試與外部訂閱者可用以判斷流程結束．
+    backtest_finished = Signal()
+
     def __init__(self, *, data_fetcher: DataFetcher | None = None) -> None:
         super().__init__()
         self.setObjectName("surface")
         self._data_fetcher = data_fetcher
+        self._active_fetcher: (
+            AsyncFetcher[dict[Symbol, list[Bar]]] | None
+        ) = None
+        self._pending_run_args: tuple[date, date] | None = None
 
         self._lookback = QSpinBox()
         self._lookback.setRange(1, 1000)
@@ -125,14 +133,16 @@ class BacktestPage(QWidget):
 
     # ---- run ----
     def run_with_fetcher(self) -> None:
-        """讀取表單參數 → 用注入的 data_fetcher 抓資料 → run_with_bars．"""
+        """讀表單參數 → 背景抓資料 → 完成後 run_with_bars．非阻塞．"""
         if self._data_fetcher is None:
             self._status_label.setText("✗ 沒有資料源 (data_fetcher) 注入")
+            self.backtest_finished.emit()
             return
 
         ticker_codes = self.tickers_value()
         if not ticker_codes:
             self._status_label.setText("✗ 請輸入至少一個 ticker")
+            self.backtest_finished.emit()
             return
 
         symbols = [self._symbol_for_ticker(t) for t in ticker_codes]
@@ -140,13 +150,46 @@ class BacktestPage(QWidget):
         end = self._qdate_to_date(self._end_date.date())
 
         self._status_label.setText("⏳ 抓取資料中...")
-        # 注意：同步抓取會短暫卡 UI；v1.5 改非同步
-        bars_by_symbol = self._data_fetcher(symbols, start, end)
-        self._status_label.setText("⏳ 跑回測中...")
-        self.run_with_bars(bars_by_symbol=bars_by_symbol, start=start, end=end)
-        self._status_label.setText(
-            f"✓ 完成 ({sum(len(b) for b in bars_by_symbol.values())} bars)"
+        self._run_button.setEnabled(False)
+        self._pending_run_args = (start, end)
+
+        fetcher = self._data_fetcher
+        worker: AsyncFetcher[dict[Symbol, list[Bar]]] = AsyncFetcher(
+            lambda: fetcher(symbols, start, end)
         )
+        # 保留 reference 避免被 GC；連 signals 後再 start
+        self._active_fetcher = worker
+        worker.finished_with_result.connect(self._on_fetch_done)
+        worker.failed.connect(self._on_fetch_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_fetch_done(self, bars_by_symbol: dict[Symbol, list[Bar]]) -> None:
+        try:
+            if self._pending_run_args is None:
+                return
+            start, end = self._pending_run_args
+            self._status_label.setText("⏳ 跑回測中...")
+            self.run_with_bars(
+                bars_by_symbol=bars_by_symbol, start=start, end=end
+            )
+            self._status_label.setText(
+                f"✓ 完成 ({sum(len(b) for b in bars_by_symbol.values())} bars)"
+            )
+        except Exception as exc:
+            self._status_label.setText(f"✗ 回測失敗：{exc}")
+        finally:
+            self._pending_run_args = None
+            self._active_fetcher = None
+            self._run_button.setEnabled(True)
+            self.backtest_finished.emit()
+
+    def _on_fetch_failed(self, exc: BaseException) -> None:
+        self._status_label.setText(f"✗ 抓取失敗：{exc}")
+        self._pending_run_args = None
+        self._active_fetcher = None
+        self._run_button.setEnabled(True)
+        self.backtest_finished.emit()
 
     @staticmethod
     def _symbol_for_ticker(ticker: str) -> Symbol:
