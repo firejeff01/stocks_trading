@@ -48,7 +48,7 @@ class YFinanceProvider:
         ticker = self._to_ticker(symbol)
         try:
             df = self._download(ticker, start, end)
-        except Exception as exc:  # noqa: BLE001 — 任何例外都包成 ProviderError
+        except Exception as exc:
             raise ProviderError(f"抓取 {symbol.code} ({ticker}) 失敗: {exc}") from exc
 
         if df is None or df.empty:
