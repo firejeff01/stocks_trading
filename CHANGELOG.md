@@ -2,6 +2,34 @@
 
 依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 與 SemVer．
 
+## [0.1.1] — 2026-05-23 — UI 接資料層 + Shioaji 行情
+
+UI 真正接通 yfinance / Shioaji，回測頁可實際執行．
+
+### 新增 (Added)
+- `ToggleSwitch` 自繪滑動式開關 widget (取代主題切換按鈕)
+- BacktestPage 日期欄行事曆 popup (使用者體驗)
+- `ShioajiDataProvider`：永豐 API 行情抓取 (login/fetch_bars/logout)
+  - 自動聚合 minute kbars → daily Bar
+  - sj_factory DI 注入便利測試
+- SettingsPage 新增「永豐 Shioaji API」區塊
+  - API Key + Secret Key 兩欄 (兩者 DPAPI 加密)
+  - 「測試連線」按鈕
+- `MarketDataRouter`：TW→Shioaji / US→yfinance 統一介面
+  - Shioaji 未登入時自動 fallback yfinance
+- BacktestPage `▶ 執行回測` 按鈕啟用：
+  - 「標的 (CSV)」欄位 (4 碼數字 → TW、否則 → US)
+  - 同步抓資料 → 跑 BacktestEngine → 顯示績效
+- Dashboard KPI 顯示真實 SIM-US 帳本 equity ($3000 seed)
+- 應用程式啟動時自動嘗試 Shioaji login (失敗不阻擋)
+
+### 強化 (Enhanced)
+- .gitignore：排除 `pm/api_key/`、`api_key.txt`、CA 憑證 (*.pfx/.p12)
+
+### 統計
+- 410 tests 全綠 (+39 from v0.1.0)
+- ruff / mypy strict 全綠
+
 ## [0.1.0] — 2026-05-23 — v1.0 Paper Trading MVP
 
 第一個可裝可跑的 release．**僅模擬模式 (paper trading)**，實盤模式留給 v1.5．

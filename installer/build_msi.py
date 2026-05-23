@@ -31,7 +31,7 @@ MIGRATIONS = SRC / "stocks_trading" / "storage" / "migrations"
 # 固定 GUID — 不要隨意改，否則升級 MSI 會變成並存安裝
 UPGRADE_CODE = "{55fee0e4-d3a1-4cd2-a7b3-c40c5a8a3000}"
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 build_exe_options: dict[str, object] = {
     # 自動推導大部分依賴；明確列出主套件確保正確
