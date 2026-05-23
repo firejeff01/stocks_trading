@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from datetime import date
+from pathlib import Path
 from uuid import uuid4
 
 from stocks_trading import __version__
@@ -52,6 +53,54 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="不寫 DB / 不寄信，只印計算結果",
+    )
+
+    # ---- backtest 子命令 ----
+    bt = sub.add_parser(
+        "backtest",
+        help="跑單次回測：抓資料 → 跑策略 → 印 metrics (text 或 JSON)",
+    )
+    bt.add_argument(
+        "--tickers",
+        type=lambda s: [t.strip().upper() for t in s.split(",") if t.strip()],
+        required=True,
+        help="逗號分隔的標的清單 (例 SPY,QQQ,IWM)",
+    )
+    bt.add_argument(
+        "--start",
+        type=lambda s: date.fromisoformat(s),
+        required=True,
+        help="起始日期 YYYY-MM-DD",
+    )
+    bt.add_argument(
+        "--end",
+        type=lambda s: date.fromisoformat(s),
+        required=True,
+        help="結束日期 YYYY-MM-DD",
+    )
+    bt.add_argument(
+        "--lookback", type=int, default=252, help="lookback 天數 (預設 252)"
+    )
+    bt.add_argument(
+        "--top-n", type=int, default=2, help="選 top N 標的 (預設 2)"
+    )
+    bt.add_argument(
+        "--initial-capital",
+        type=str,
+        default="10000",
+        help="初始資金 (字串形式，避免 float 精度問題)",
+    )
+    bt.add_argument(
+        "--currency",
+        choices=["USD", "TWD"],
+        default="USD",
+        help="幣別 (預設 USD)",
+    )
+    bt.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="輸出格式 (預設 text)",
     )
 
     return parser
@@ -110,11 +159,57 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_backtest(args: argparse.Namespace) -> int:
+    """讀 config / 建 router / 呼叫 cli.backtest.run_backtest，輸出 text 或 JSON．"""
+    import tempfile
+    from decimal import Decimal
+
+    from stocks_trading.app import _build_market_data_router, _default_appdata_dir
+    from stocks_trading.cli.backtest import (
+        format_result_json,
+        format_result_text,
+        run_backtest,
+    )
+    from stocks_trading.config.store import ConfigStore
+    from stocks_trading.domain.currency import Currency
+    from stocks_trading.security.dpapi import DpapiCipher
+
+    appdata = _default_appdata_dir()
+    appdata.mkdir(parents=True, exist_ok=True)
+    config = ConfigStore(
+        config_path=appdata / "config.json",
+        secrets_path=appdata / "secrets.dat",
+        cipher=DpapiCipher(),
+    )
+    router = _build_market_data_router(config)
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        result = run_backtest(
+            tickers=args.tickers,
+            router=router,
+            start=args.start,
+            end=args.end,
+            lookback_days=args.lookback,
+            top_n=args.top_n,
+            initial_capital=Decimal(args.initial_capital),
+            currency=Currency(args.currency),
+            tmp_dir=Path(tmp),
+        )
+
+    if args.output == "json":
+        print(format_result_json(result))
+    else:
+        print(format_result_text(result))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "daily-routine":
         return _run_daily_routine(args)
+    if args.command == "backtest":
+        return _run_backtest(args)
     parser.error(f"未知子命令：{args.command}")  # 永不返回 (SystemExit)
 
 

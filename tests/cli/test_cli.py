@@ -60,3 +60,29 @@ class TestCliDailyRoutineDispatch:
         assert rc == 0
         # CLI 把 tickers 解析成 list
         assert getattr(invoked["args"], "tickers", None) == ["SPY", "QQQ"]
+
+
+class TestCliBacktestDispatch:
+    def test_backtest_subcommand_invokes_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invoked: dict[str, Any] = {}
+
+        def fake_handler(args: Any) -> int:
+            invoked["args"] = args
+            return 0
+
+        monkeypatch.setattr(cli_main, "_run_backtest", fake_handler)
+        rc = cli_main.main(
+            [
+                "backtest",
+                "--tickers", "SPY,QQQ",
+                "--start", "2025-01-01",
+                "--end", "2026-01-01",
+                "--output", "json",
+            ]
+        )
+        assert rc == 0
+        args = invoked["args"]
+        assert getattr(args, "tickers", None) == ["SPY", "QQQ"]
+        assert getattr(args, "output", None) == "json"
