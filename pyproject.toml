@@ -26,6 +26,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"stocks_trading.storage" = ["migrations/*.sql"]
+
 # ---- pytest ----
 [tool.pytest.ini_options]
 minversion = "8.0"
