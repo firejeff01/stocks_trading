@@ -27,6 +27,7 @@ from stocks_trading.ui.widgets.toggle_switch import ToggleSwitch
 
 class PageId(StrEnum):
     DASHBOARD = "dashboard"
+    CHART = "chart"
     STRATEGY = "strategy"
     BACKTEST = "backtest"
     SIGNAL_LOG = "signal_log"
@@ -35,6 +36,7 @@ class PageId(StrEnum):
 
 _NAV_LABELS: dict[PageId, str] = {
     PageId.DASHBOARD: "▣ 主控台",
+    PageId.CHART: "📈 圖表",
     PageId.STRATEGY: "⚡ 策略",
     PageId.BACKTEST: "📊 回測",
     PageId.SIGNAL_LOG: "📋 訊號日誌",

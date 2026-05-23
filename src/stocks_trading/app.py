@@ -31,6 +31,7 @@ from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.account_repository import AccountRepository
 from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.ui.backtest_page import BacktestPage
+from stocks_trading.ui.chart_page import ChartPage
 from stocks_trading.ui.dashboard_page import DashboardPage
 from stocks_trading.ui.main_window import MainWindow, PageId
 from stocks_trading.ui.settings_page import SettingsPage
@@ -93,6 +94,9 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     ) -> dict[Symbol, list[Bar]]:
         return {s: router.fetch_bars(s, start, end) for s in symbols}
 
+    def chart_fetcher(symbol: Symbol, start: date, end: date) -> list[Bar]:
+        return router.fetch_bars(symbol, start, end)
+
     # 4. 帳本 / dashboard 初始資料
     account_repo = AccountRepository(db_path=db_path)
     dashboard = DashboardPage()
@@ -101,6 +105,7 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
     pages: dict[PageId, QWidget] = {
         PageId.DASHBOARD: dashboard,
+        PageId.CHART: ChartPage(data_fetcher=chart_fetcher),
         PageId.STRATEGY: StrategyPage(config=config),
         PageId.BACKTEST: BacktestPage(data_fetcher=backtest_fetcher),
         PageId.SIGNAL_LOG: SignalLogPage(),
