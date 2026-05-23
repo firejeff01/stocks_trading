@@ -90,3 +90,67 @@ class TestSignals:
         qtbot.addWidget(page)
         page.update_signals([_sample_signal(), _sample_signal()])
         assert page.signals_row_count() == 2
+
+
+class TestSimKpi:
+    """SIM 帳本專屬 KPI — TW 與 US 各一組 (equity / today_pnl)．"""
+
+    def test_update_sim_tw_kpi(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        page.update_sim_tw_kpi(
+            equity=Money("100500", Currency.TWD),
+            todays_pnl=Money("500", Currency.TWD),
+        )
+        assert "100500" in page.sim_tw_equity_text() or "NT$" in page.sim_tw_equity_text()
+        assert "500" in page.sim_tw_todays_pnl_text()
+
+    def test_update_sim_us_kpi(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        page.update_sim_us_kpi(
+            equity=Money("1050", Currency.USD),
+            todays_pnl=Money("-15.50", Currency.USD),
+        )
+        assert "1050" in page.sim_us_equity_text() or "$" in page.sim_us_equity_text()
+        # 負值要有 - 號 (Money __str__ → "-$15.50")
+        text = page.sim_us_todays_pnl_text()
+        assert text.startswith("-") and "15" in text
+
+
+class TestEquityCurve:
+    """績效曲線 — 兩個市場分開繪製，接收 (date, equity_amount) 點．"""
+
+    def test_update_tw_curve_with_points(self, qtbot: QtBot) -> None:
+        from datetime import date
+
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        points = [
+            (date(2026, 1, 1), 100000.0),
+            (date(2026, 1, 2), 100500.0),
+            (date(2026, 1, 3), 100200.0),
+        ]
+        page.update_tw_equity_curve(points)
+        # 後驗：曲線 widget 應該有 3 筆資料
+        assert page.tw_curve_point_count() == 3
+
+    def test_update_us_curve_with_points(self, qtbot: QtBot) -> None:
+        from datetime import date
+
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        points = [
+            (date(2026, 1, 1), 1000.0),
+            (date(2026, 1, 2), 980.0),
+        ]
+        page.update_us_equity_curve(points)
+        assert page.us_curve_point_count() == 2
+
+    def test_empty_curve_handled(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        page.update_tw_equity_curve([])
+        page.update_us_equity_curve([])
+        assert page.tw_curve_point_count() == 0
+        assert page.us_curve_point_count() == 0

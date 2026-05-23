@@ -1,13 +1,15 @@
 """DashboardPage — 主控台．
 
-KPI 卡片 + 持倉表 + 最近訊號表．
-資料由外部 (M3-S7 wire up) 注入；本頁不直接觸碰 repositories．
+SIM-TW / SIM-US 各自 KPI + 績效曲線 + 持倉表 + 最近訊號表．
+資料由外部 (app.py 的 _refresh_dashboard) 注入；本頁不直接觸碰 repositories．
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 
+import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -64,10 +66,58 @@ class _KpiCard(QFrame):
         return self._value.text()
 
 
+def _date_to_ts(d: date) -> float:
+    return datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp()
+
+
+class _EquityCurveWidget(QWidget):
+    """單一帳本的績效曲線 (pyqtgraph)．"""
+
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        title_label = QLabel(title)
+        title_label.setObjectName("muted")
+        layout.addWidget(title_label)
+        self._plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
+        self._plot.setBackground(None)
+        self._plot.showGrid(x=True, y=True, alpha=0.25)
+        self._plot.setMinimumHeight(180)
+        layout.addWidget(self._plot)
+        self._curve = self._plot.plot([], [], pen=pg.mkPen("#2563eb", width=2))
+        self._point_count = 0
+
+    def set_points(self, points: list[tuple[date, float]]) -> None:
+        if not points:
+            self._curve.setData([], [])
+            self._point_count = 0
+            return
+        xs = [_date_to_ts(d) for d, _v in points]
+        ys = [v for _d, v in points]
+        self._curve.setData(xs, ys)
+        self._point_count = len(points)
+
+    def point_count(self) -> int:
+        return self._point_count
+
+
 class DashboardPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("surface")
+        # SIM 帳本各 2 個 KPI
+        self._kpi_sim_tw_equity = _KpiCard("SIM-TW 帳戶總值")
+        self._kpi_sim_tw_today = _KpiCard("SIM-TW 今日損益")
+        self._kpi_sim_us_equity = _KpiCard("SIM-US 帳戶總值")
+        self._kpi_sim_us_today = _KpiCard("SIM-US 今日損益")
+
+        # 績效曲線 (兩個各自一張)
+        self._curve_tw = _EquityCurveWidget("SIM-TW 績效曲線 (TWD)")
+        self._curve_us = _EquityCurveWidget("SIM-US 績效曲線 (USD)")
+
+        # 既有：舊的「總值/今日/持倉/勝率」KPI — 留著做向下相容 (update_kpi)
         self._kpi_equity = _KpiCard("帳戶總值")
         self._kpi_today = _KpiCard("今日損益")
         self._kpi_positions = _KpiCard("持倉數")
@@ -93,7 +143,30 @@ class DashboardPage(QWidget):
 
         self._build_ui()
 
-    # ---- public API ----
+    # ---- 公開 API (新 SIM KPI) ----
+    def update_sim_tw_kpi(
+        self, *, equity: Money, todays_pnl: Money
+    ) -> None:
+        self._kpi_sim_tw_equity.set_value(self._fmt_money(equity))
+        self._kpi_sim_tw_today.set_value(self._fmt_money(todays_pnl, signed=True))
+
+    def update_sim_us_kpi(
+        self, *, equity: Money, todays_pnl: Money
+    ) -> None:
+        self._kpi_sim_us_equity.set_value(self._fmt_money(equity))
+        self._kpi_sim_us_today.set_value(self._fmt_money(todays_pnl, signed=True))
+
+    def update_tw_equity_curve(
+        self, points: list[tuple[date, float]]
+    ) -> None:
+        self._curve_tw.set_points(points)
+
+    def update_us_equity_curve(
+        self, points: list[tuple[date, float]]
+    ) -> None:
+        self._curve_us.set_points(points)
+
+    # ---- 公開 API (legacy update_kpi 向下相容) ----
     def update_kpi(
         self,
         *,
@@ -113,12 +186,18 @@ class DashboardPage(QWidget):
             self._holdings_table.setItem(i, 0, QTableWidgetItem(row.symbol))
             self._holdings_table.setItem(i, 1, QTableWidgetItem(row.market))
             self._holdings_table.setItem(i, 2, QTableWidgetItem(str(row.qty)))
-            self._holdings_table.setItem(i, 3, QTableWidgetItem(self._fmt_money(row.avg_price)))
+            self._holdings_table.setItem(
+                i, 3, QTableWidgetItem(self._fmt_money(row.avg_price))
+            )
             self._holdings_table.setItem(
                 i, 4, QTableWidgetItem(self._fmt_money(row.current_price))
             )
             self._holdings_table.setItem(
-                i, 5, QTableWidgetItem(self._fmt_money(row.unrealized_pnl, signed=True))
+                i,
+                5,
+                QTableWidgetItem(
+                    self._fmt_money(row.unrealized_pnl, signed=True)
+                ),
             )
 
     def update_signals(self, signals: list[Signal]) -> None:
@@ -126,8 +205,12 @@ class DashboardPage(QWidget):
         for i, sig in enumerate(signals):
             time_str = sig.generated_at.strftime("%H:%M")
             self._signals_table.setItem(i, 0, QTableWidgetItem(time_str))
-            self._signals_table.setItem(i, 1, QTableWidgetItem(sig.strategy_name))
-            self._signals_table.setItem(i, 2, QTableWidgetItem(sig.symbol.code))
+            self._signals_table.setItem(
+                i, 1, QTableWidgetItem(sig.strategy_name)
+            )
+            self._signals_table.setItem(
+                i, 2, QTableWidgetItem(sig.symbol.code)
+            )
             self._signals_table.setItem(i, 3, QTableWidgetItem(sig.side.value))
             self._signals_table.setItem(
                 i, 4, QTableWidgetItem(self._fmt_money(sig.target_price))
@@ -146,6 +229,24 @@ class DashboardPage(QWidget):
     def win_rate_text(self) -> str:
         return self._kpi_win_rate.text()
 
+    def sim_tw_equity_text(self) -> str:
+        return self._kpi_sim_tw_equity.text()
+
+    def sim_tw_todays_pnl_text(self) -> str:
+        return self._kpi_sim_tw_today.text()
+
+    def sim_us_equity_text(self) -> str:
+        return self._kpi_sim_us_equity.text()
+
+    def sim_us_todays_pnl_text(self) -> str:
+        return self._kpi_sim_us_today.text()
+
+    def tw_curve_point_count(self) -> int:
+        return self._curve_tw.point_count()
+
+    def us_curve_point_count(self) -> int:
+        return self._curve_us.point_count()
+
     def holdings_row_count(self) -> int:
         return self._holdings_table.rowCount()
 
@@ -158,31 +259,35 @@ class DashboardPage(QWidget):
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(12)
 
-        # KPI row — 每張卡片設最小寬度避免被擠到不可讀，加上整列水平捲動
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(12)
+        # 第一列：SIM-TW + SIM-US 各 2 個 KPI (共 4 個卡)
+        sim_kpi_row = QHBoxLayout()
+        sim_kpi_row.setSpacing(12)
         for card in (
-            self._kpi_equity,
-            self._kpi_today,
-            self._kpi_positions,
-            self._kpi_win_rate,
+            self._kpi_sim_tw_equity,
+            self._kpi_sim_tw_today,
+            self._kpi_sim_us_equity,
+            self._kpi_sim_us_today,
         ):
             card.setMinimumWidth(150)
             card.setMinimumHeight(70)
-            kpi_row.addWidget(card)
-        outer.addLayout(kpi_row)
+            sim_kpi_row.addWidget(card)
+        outer.addLayout(sim_kpi_row)
 
-        # Main grid: holdings + signals side by side
-        # Splitter 讓使用者拖拉調整左右比例，視窗小時可手動分配
+        # 第二列：兩張績效曲線左右並列
+        curves_row = QHBoxLayout()
+        curves_row.setSpacing(12)
+        curves_row.addWidget(self._curve_tw, 1)
+        curves_row.addWidget(self._curve_us, 1)
+        outer.addLayout(curves_row)
+
+        # 第三列：持倉 + 訊號 左右並列 (Splitter)
         body = QSplitter(Qt.Orientation.Horizontal)
-
         holdings_panel = QWidget()
         holdings_panel.setMinimumWidth(280)
         holdings_layout = QVBoxLayout(holdings_panel)
         holdings_layout.setContentsMargins(0, 0, 0, 0)
         holdings_layout.setSpacing(4)
-        holdings_label = QLabel("持倉")
-        holdings_layout.addWidget(holdings_label)
+        holdings_layout.addWidget(QLabel("持倉"))
         holdings_layout.addWidget(self._holdings_table)
         body.addWidget(holdings_panel)
 
@@ -191,11 +296,9 @@ class DashboardPage(QWidget):
         signals_layout = QVBoxLayout(signals_panel)
         signals_layout.setContentsMargins(0, 0, 0, 0)
         signals_layout.setSpacing(4)
-        signals_label = QLabel("今日訊號")
-        signals_layout.addWidget(signals_label)
+        signals_layout.addWidget(QLabel("今日訊號"))
         signals_layout.addWidget(self._signals_table)
         body.addWidget(signals_panel)
-
         body.setStretchFactor(0, 1)
         body.setStretchFactor(1, 1)
         outer.addWidget(body, 1)

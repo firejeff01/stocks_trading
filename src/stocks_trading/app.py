@@ -30,7 +30,9 @@ from stocks_trading.domain.symbol import Symbol
 from stocks_trading.security.dpapi import DpapiCipher
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.account_repository import AccountRepository
+from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
 from stocks_trading.storage.migration import MigrationRunner
+from stocks_trading.storage.positions_repository import PositionsRepository
 from stocks_trading.ui.backtest_page import BacktestPage
 from stocks_trading.ui.chart_page import ChartPage
 from stocks_trading.ui.dashboard_page import DashboardPage
@@ -98,22 +100,24 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     def chart_fetcher(symbol: Symbol, start: date, end: date) -> list[Bar]:
         return router.fetch_bars(symbol, start, end)
 
-    # 4. 帳本 / dashboard 初始資料
-    account_repo = AccountRepository(db_path=db_path)
-    dashboard = DashboardPage()
-    _refresh_dashboard(dashboard, account_repo)
-
-    # Paper Trading reset service (SettingsPage 需要)
+    # 4. 帳本 / dashboard / paper trading repos
     from stocks_trading.paper_trading.reset_service import ResetService
-    from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
-    from stocks_trading.storage.positions_repository import PositionsRepository
 
+    account_repo = AccountRepository(db_path=db_path)
     positions_repo = PositionsRepository(db_path=db_path)
     daily_pnl_repo = DailyPnlRepository(db_path=db_path)
     reset_service = ResetService(
         positions_repo=positions_repo,
         daily_pnl_repo=daily_pnl_repo,
         account_repo=account_repo,
+    )
+
+    dashboard = DashboardPage()
+    _refresh_dashboard(
+        dashboard,
+        account_repo,
+        positions_repo=positions_repo,
+        daily_pnl_repo=daily_pnl_repo,
     )
 
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
@@ -140,23 +144,74 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
 
 
 def _refresh_dashboard(
-    dashboard: DashboardPage, account_repo: AccountRepository
+    dashboard: DashboardPage,
+    account_repo: AccountRepository,
+    positions_repo: PositionsRepository | None = None,
+    daily_pnl_repo: DailyPnlRepository | None = None,
 ) -> None:
-    """從 AccountRepository 讀 SIM 帳本顯示初始 KPI．
+    """從 repos 拉所有 SIM 帳本資料更新 Dashboard.
 
-    v1.0：只讀 SIM-US 帳本 (主要 USD 帳本)；無自動 paper trading，
-    位置 / 勝率 為 0．v1.5+ 加入 PositionsRepository 後會帶上實際資料．
+    包含：
+    - SIM-TW / SIM-US 各自 equity + 今日 PnL (與昨日比)
+    - 兩個帳本各自的 equity curve (從 daily_pnl)
+    - 兩個帳本合併的持倉列表
+
+    v1.5+ 起 paper trading 會持續寫入 daily_pnl 與 positions．
     """
-    sim_us = account_repo.find_by_mode_currency(Mode.SIM, Currency.USD)
-    if sim_us is None:
-        return
-    equity = account_repo.get_current_equity(sim_us.account_id)
-    dashboard.update_kpi(
-        equity=equity,
-        todays_pnl=Money(0, Currency.USD),
-        position_count=0,
-        win_rate=0.0,
+    from stocks_trading.storage.seed_accounts import (
+        SIM_TW_ACCOUNT_ID,
+        SIM_US_ACCOUNT_ID,
     )
+    from stocks_trading.ui.dashboard_page import HoldingRow
+
+    # KPI: 帳本當前 equity；今日 PnL 暫填 0 (與昨日 daily_pnl 比要 commit 5+ 改進)
+    for acct_id, currency, updater in (
+        (SIM_TW_ACCOUNT_ID, Currency.TWD, dashboard.update_sim_tw_kpi),
+        (SIM_US_ACCOUNT_ID, Currency.USD, dashboard.update_sim_us_kpi),
+    ):
+        try:
+            equity = account_repo.get_current_equity(acct_id)
+        except LookupError:
+            continue
+        today_pnl = Money(0, currency)
+        if daily_pnl_repo is not None:
+            recent = daily_pnl_repo.find_recent(acct_id, limit=2)
+            if len(recent) >= 2:
+                today_pnl = Money(
+                    recent[0].equity.amount - recent[1].equity.amount,
+                    currency,
+                )
+        updater(equity=equity, todays_pnl=today_pnl)
+
+    # 績效曲線
+    if daily_pnl_repo is not None:
+        tw_snaps = daily_pnl_repo.find_by_account(SIM_TW_ACCOUNT_ID)
+        dashboard.update_tw_equity_curve(
+            [(s.snapshot_date, float(s.equity.amount)) for s in tw_snaps]
+        )
+        us_snaps = daily_pnl_repo.find_by_account(SIM_US_ACCOUNT_ID)
+        dashboard.update_us_equity_curve(
+            [(s.snapshot_date, float(s.equity.amount)) for s in us_snaps]
+        )
+
+    # 持倉 (合併 TW + US)
+    if positions_repo is not None:
+        rows: list[HoldingRow] = []
+        for acct_id, currency in (
+            (SIM_TW_ACCOUNT_ID, Currency.TWD),
+            (SIM_US_ACCOUNT_ID, Currency.USD),
+        ):
+            for pos in positions_repo.find_by_account(acct_id):
+                rows.append(
+                    HoldingRow(
+                        symbol=pos.symbol.code,
+                        market=pos.symbol.market.value,
+                        qty=pos.qty,
+                        avg_price=Money(pos.avg_price, currency),
+                        current_price=Money(pos.avg_price, currency),
+                    )
+                )
+        dashboard.update_holdings(rows)
 
 
 def main() -> int:

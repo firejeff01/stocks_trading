@@ -42,8 +42,8 @@ class TestBuildMainWindow:
             window._page_index[PageId.DASHBOARD]
         )
         assert isinstance(dashboard, DashboardPage)
-        # SIM-US seed equity = $3000.00
-        assert "3000" in dashboard.equity_text()
+        # SIM-US seed equity = $3000.00 (新 SIM KPI 顯示位)
+        assert "3000" in dashboard.sim_us_equity_text()
 
     def test_backtest_has_data_fetcher(self, qtbot: QtBot, tmp_path: Path) -> None:
         window = build_main_window(appdata_dir=tmp_path)
