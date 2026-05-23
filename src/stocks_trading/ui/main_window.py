@@ -47,10 +47,12 @@ class MainWindow(QMainWindow):
         *,
         theme_manager: ThemeManager,
         mode: Mode,
+        pages: dict[PageId, QWidget] | None = None,
     ) -> None:
         super().__init__()
         self._theme_manager = theme_manager
         self._mode = mode
+        self._pages_override = pages or {}
 
         self._nav_buttons: dict[PageId, QPushButton] = {}
         self._page_index: dict[PageId, int] = {}
@@ -162,8 +164,8 @@ class MainWindow(QMainWindow):
     def _build_stack(self) -> QStackedWidget:
         self._stack = QStackedWidget()
         for pid in PageId:
-            placeholder = self._build_placeholder_page(pid)
-            idx = self._stack.addWidget(placeholder)
+            widget = self._pages_override.get(pid) or self._build_placeholder_page(pid)
+            idx = self._stack.addWidget(widget)
             self._page_index[pid] = idx
         return self._stack
 
