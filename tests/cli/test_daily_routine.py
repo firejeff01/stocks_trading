@@ -250,6 +250,80 @@ class TestDailyRoutineNotification:
         assert call["summary_date"] == date(2026, 1, 30)
 
 
+class TestDailyRoutineTodaysPnl:
+    """送出日報的 today's PnL 要等於 (今日 equity − 昨日 equity)，不再寫死 0．"""
+
+    def test_first_run_pnl_is_zero(self, tmp_path: Path) -> None:
+        # 沒有昨日 snapshot → today_pnl = 0
+        db = _setup_db(tmp_path)
+        signal_repo, _, _, _, service = _build_service(db)
+        spy = Symbol("SPY", Market.US)
+        bars = _ramp_bars(date(2026, 1, 1), 30)
+        router = _FakeRouter({spy: bars})
+        strategy = DualMomentumStrategy(
+            lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+        )
+        notify = _FakeNotify()
+
+        daily_routine(
+            tickers=["SPY"],
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=service,
+            strategy=strategy,
+            account_id=SIM_US_ACCOUNT_ID,
+            notification_service=notify,  # type: ignore[arg-type]
+            mode=Mode.SIM,
+            summary_date=date(2026, 1, 30),
+        )
+        assert notify.calls[0]["todays_pnl"].amount == Decimal("0")
+
+    def test_pnl_equals_today_minus_previous(self, tmp_path: Path) -> None:
+        """直接 pre-seed 一筆昨日 snapshot，跑 daily_routine 後驗 today_pnl 差額．"""
+        from stocks_trading.storage.daily_pnl_repository import DailyPnlSnapshot
+
+        db = _setup_db(tmp_path)
+        signal_repo, _, daily_pnl_repo, _, service = _build_service(db)
+        # 預先寫一筆昨日 (1/29) snapshot equity=2500
+        daily_pnl_repo.upsert(
+            DailyPnlSnapshot(
+                account_id=SIM_US_ACCOUNT_ID,
+                snapshot_date=date(2026, 1, 29),
+                equity=Money(Decimal("2500"), Currency.USD),
+                cash=Money(Decimal("2500"), Currency.USD),
+                realized_pnl=Money(Decimal("0"), Currency.USD),
+                unrealized_pnl=Money(Decimal("0"), Currency.USD),
+                drawdown_pct=None,
+                snapshotted_at=datetime(2026, 1, 29, 18, 0, tzinfo=UTC),
+            )
+        )
+        spy = Symbol("SPY", Market.US)
+        bars = _ramp_bars(date(2026, 1, 1), 30)
+        router = _FakeRouter({spy: bars})
+        strategy = DualMomentumStrategy(
+            lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+        )
+        notify = _FakeNotify()
+
+        # 跑今天 (1/30)，cash 仍是 seed 的 3000
+        daily_routine(
+            tickers=["SPY"],
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=service,
+            strategy=strategy,
+            account_id=SIM_US_ACCOUNT_ID,
+            notification_service=notify,  # type: ignore[arg-type]
+            mode=Mode.SIM,
+            summary_date=date(2026, 1, 30),
+        )
+        today_equity = notify.calls[0]["equity"].amount
+        expected_pnl = today_equity - Decimal("2500")
+        # 兩者應該嚴格等於 (而非 0)
+        assert expected_pnl != Decimal("0")
+        assert notify.calls[0]["todays_pnl"].amount == expected_pnl
+
+
 class TestDailyRoutineHandlesEmptyData:
     def test_empty_bars_returns_zero_new_signals(
         self, tmp_path: Path

@@ -155,12 +155,24 @@ def daily_routine(
                 )
             )
 
+        # 今日 PnL = 今日 equity − 上一日 equity (沒上一日就視為 0)
+        # find_recent(limit=2)：[0]=今日 (剛 snapshot)、[1]=上一日 (若有)
+        recent = paper_trading_service._daily_pnl_repo.find_recent(
+            account_id, limit=2
+        )
+        if len(recent) >= 2:
+            todays_pnl = Money(
+                recent[0].equity.amount - recent[1].equity.amount, currency
+            )
+        else:
+            todays_pnl = Money(Decimal("0"), currency)
+
         notification_service.send_daily_summary(
             mode=mode,
             summary_date=summary_date,
             equity=snapshot.equity,
             cash=snapshot.cash,
-            todays_pnl=Money(Decimal("0"), currency),  # 之後 commit 5 計算昨日 vs 今日
+            todays_pnl=todays_pnl,
             holdings=holdings,
             todays_signals=list(new_signals),
         )
