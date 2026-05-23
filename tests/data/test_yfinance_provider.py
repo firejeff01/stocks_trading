@@ -137,6 +137,26 @@ class TestDataConversion:
         assert str(bars[0].open) == "0.1"
         assert str(bars[0].close) == "0.2"
 
+    def test_multiindex_columns_flattened(self) -> None:
+        # yfinance 0.2.55+ 對單 ticker 也回 MultiIndex columns．
+        # 必須攤平，否則 row["Open"] 會回 Series 不是 scalar．
+        df = pd.DataFrame(
+            {
+                ("Open", "0050.TW"): [100.0],
+                ("High", "0050.TW"): [105.0],
+                ("Low", "0050.TW"): [99.0],
+                ("Close", "0050.TW"): [103.0],
+                ("Volume", "0050.TW"): [1000],
+            }
+        )
+        df.index = pd.to_datetime(["2026-05-22"])
+        provider = YFinanceProvider(downloader=_stub_downloader(df))
+        bars = provider.fetch_bars(
+            Symbol("0050", Market.TW), date(2026, 5, 22), date(2026, 5, 22)
+        )
+        assert len(bars) == 1
+        assert bars[0].close == Decimal("103.0")
+
     def test_volume_rounded_to_int(self) -> None:
         # yfinance 偶爾給 float volume (拆股後資料源不乾淨)，應強制 int
         df = _df([

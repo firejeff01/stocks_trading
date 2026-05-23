@@ -63,6 +63,10 @@ class YFinanceProvider:
     @staticmethod
     def _dataframe_to_bars(df: pd.DataFrame) -> list[Bar]:
         bars: list[Bar] = []
+        # yfinance 0.2.55+ 對單 ticker 也回 MultiIndex columns；攤平避免取 Series
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.copy()
+            df.columns = df.columns.get_level_values(0)
         # 確保依日期遞增排序 (yfinance 通常已排序但保險)
         df_sorted = df.sort_index()
         for ts, row in df_sorted.iterrows():

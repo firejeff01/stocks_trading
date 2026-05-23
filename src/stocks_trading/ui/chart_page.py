@@ -85,6 +85,9 @@ class ChartPage(QWidget):
         self._chk_rsi.toggled.connect(self._rsi.setVisible)
         self._chk_macd.toggled.connect(self._macd.setVisible)
 
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("muted")
+
         self._build_ui()
 
     # ---- public API ----
@@ -114,21 +117,43 @@ class ChartPage(QWidget):
 
     def load_now(self) -> None:
         if self._data_fetcher is None:
+            self._status_label.setText("✗ 尚未注入資料源 (data_fetcher)")
             return
         code = self._symbol_input.text().strip().upper()
         if not code:
+            self._status_label.setText("✗ 請輸入標的代碼")
             return
         market = (
             Market.TW if code.isdigit() and len(code) == 4 else Market.US
         )
         try:
             symbol = Symbol(code, market)
-        except Exception:
+        except Exception as exc:
+            self._status_label.setText(f"✗ 無效標的代碼：{exc}")
             return
+
         start = self._qdate_to_date(self._start_date.date())
         end = self._qdate_to_date(self._end_date.date())
-        bars = self._data_fetcher(symbol, start, end)
+        self._status_label.setText(f"⏳ 抓取 {symbol} 中...")
+        # 立即重繪 status，避免使用者以為按了沒反應
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents()
+
+        try:
+            bars = self._data_fetcher(symbol, start, end)
+        except Exception as exc:
+            self._status_label.setText(f"✗ 抓取失敗：{exc}")
+            return
+
+        if not bars:
+            self._status_label.setText(
+                f"✗ {symbol} 在 {start} ~ {end} 區間無資料 (確認代碼 / 日期)"
+            )
+            return
+
         self._render(bars)
+        self._status_label.setText(f"✓ {symbol} 載入 {len(bars)} 根 bar")
 
     def _render(self, bars: list[Bar]) -> None:
         self._bars = list(bars)
@@ -173,6 +198,7 @@ class ChartPage(QWidget):
         top_row.addWidget(self._chk_macd)
         top_row.addStretch(1)
         outer.addLayout(top_row)
+        outer.addWidget(self._status_label)
 
         # 中段：左主圖+副圖直排 ; 右：形態列表
         body = QSplitter(Qt.Orientation.Horizontal)
