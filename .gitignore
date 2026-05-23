@@ -35,8 +35,9 @@ desktop.ini
 
 # Project-specific
 # 本地資料庫與 log 不入庫（v1.0 起會放在 %LOCALAPPDATA% 但 dev 環境可能在 ./data/）
-data/
-logs/
+# 註：要用 /data/ 而非 data/，避免誤傷 src/stocks_trading/data/ 與 tests/data/
+/data/
+/logs/
 *.db
 *.db-journal
 *.sqlite
