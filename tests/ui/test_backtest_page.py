@@ -43,6 +43,13 @@ class TestBacktestPageConstruction:
         # 未跑時 metrics 空白
         assert page.result_summary_text() == ""
 
+    def test_date_editors_have_calendar_popup(self, qtbot: QtBot) -> None:
+        # 行事曆 popup 必須啟用，否則使用者只能手動鍵入年月日
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        assert page._start_date.calendarPopup() is True
+        assert page._end_date.calendarPopup() is True
+
 
 class TestBacktestPageParams:
     def test_set_params_round_trip(self, qtbot: QtBot) -> None:

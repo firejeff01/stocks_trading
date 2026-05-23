@@ -58,7 +58,10 @@ build_exe_options: dict[str, object] = {
     "include_files": [
         (str(MIGRATIONS), "lib/stocks_trading/storage/migrations"),
     ],
-    "build_exe": str(ROOT / "build" / f"exe.win-amd64-{sys.version_info.major}.{sys.version_info.minor}"),
+    "build_exe": str(
+        ROOT / "build"
+        / f"exe.win-amd64-{sys.version_info.major}.{sys.version_info.minor}"
+    ),
     "optimize": 1,
 }
 

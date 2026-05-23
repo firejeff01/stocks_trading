@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from stocks_trading.domain.mode import Mode
 from stocks_trading.ui.theme import ThemeManager, ThemeMode
+from stocks_trading.ui.widgets.toggle_switch import ToggleSwitch
 
 
 class PageId(StrEnum):
@@ -95,6 +96,13 @@ class MainWindow(QMainWindow):
     def toggle_theme(self) -> None:
         self._theme_manager.toggle()
         self._apply_theme()
+        # 同步 switch 視覺狀態
+        if hasattr(self, "_theme_switch"):
+            self._theme_switch.blockSignals(True)
+            self._theme_switch.setChecked(
+                self._theme_manager.current_mode is ThemeMode.DARK
+            )
+            self._theme_switch.blockSignals(False)
 
     # ---- UI construction ----
     def _build_ui(self) -> None:
@@ -134,12 +142,26 @@ class MainWindow(QMainWindow):
 
         layout.addStretch(1)
 
-        theme_btn = QPushButton("☀ / 🌙")
-        theme_btn.setObjectName("ghost")
-        theme_btn.clicked.connect(self.toggle_theme)
-        layout.addWidget(theme_btn)
+        # 主題切換 sliding switch
+        sun_label = QLabel("☀")
+        layout.addWidget(sun_label)
+        self._theme_switch = ToggleSwitch(
+            checked=self._theme_manager.current_mode is ThemeMode.DARK,
+            off_label="",
+            on_label="",
+        )
+        self._theme_switch.toggled.connect(self._on_theme_switch_toggled)
+        layout.addWidget(self._theme_switch)
+        moon_label = QLabel("🌙")
+        layout.addWidget(moon_label)
 
         return bar
+
+    def _on_theme_switch_toggled(self, checked: bool) -> None:
+        target = ThemeMode.DARK if checked else ThemeMode.LIGHT
+        if self._theme_manager.current_mode is not target:
+            self._theme_manager.set_mode(target)
+            self._apply_theme()
 
     def _build_sidebar(self) -> QFrame:
         side = QFrame()
