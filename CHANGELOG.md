@@ -4,39 +4,56 @@
 
 ## [Unreleased]
 
-### 新增 (Added)
-- K 線圖週期切換：日／週／月／季／年 K
-  - `analytics.aggregator.aggregate_to_timeframe()` 純函式 + `Timeframe` enum
-  - ChartPage 工具列新增「週期」下拉，切換後即時重繪不重新抓資料
-  - 蠟燭 / 量柱 / MACD 柱寬隨週期自動放大 (週=7d、月=30d、季=91d、年=365d)
-  - 形態偵測仍以原始日線執行，避免聚合後樣本不足
+## [1.1.0] — 2026-05-31 — K 線圖表 + Paper Trading + 風控
 
-### 強化 (Enhanced)
-- 切換股票代號時 K 線圖自動置中：`KLineChart` 及 Volume/RSI/MACD 副圖
-  每次 `_redraw` 呼叫 `enableAutoRange()`，使新標的的可視範圍即時 fit
-- 軸刻度字體放大 (pointSize 11)、tooltip pointSize 13、legend pointSize 12
-  改善小視窗閱讀性
-- K 線蠟燭新增**圖內漂浮 OHLC 資訊框** (`pg.TextItem`)：
-  滑鼠移到蠟燭上時直接在圖面上顯示日期/開高低收/量/漲跌幅，
-  與上方 header tooltip 同步；錨點依游標位置自動切換 (左/右、上/下)
-  避免被遮蔽；主題切換時底色 / 邊框同步重套
-- 價格顯示統一**四捨五入到 2 位小數**：
-  吸收 yfinance float→Decimal 浮點噪音 (例：`80.4000015258789` → `80.40`)；
-  漲跌差也壓成 `+0.00` / `-1.23` 形式，不再出現 `+0E-13` 科學記號
-- 上方 header tooltip：`wordWrap=True` 讓窄視窗自動換行而非裁切；
-  MA legend 加 `maxWidth=220` 防止把 OHLC 推出可視範圍
-- 圖表頁副圖不再被擠壓：
-  - K 線維持原本最小高 180、各副圖最小高 150 (從 60 拉高)，刻度有空間呈現
-  - 圖區整個包進 `QScrollArea`，視窗高度不足以容納 180+150×3=630
-    時，右側出現「單一」垂直滾軸 (非每張圖一條)
-  - stretch 維持 5:1:1:1，視窗放大時主圖仍佔大頭
-- 成交量 Y 軸刻度改用「萬／億」單位 (`_AbbrevAxisItem`)：
-  原先 `4e+08` 之類科學記號改為 `4.0億`、`125_000` → `12萬`，
-  避免使用者不明白科學記號意義
+繼 v1.0 之後累積的功能整合釋出：完整 paper trading 自動化、K 線技術分析、
+風險控管，並修正多項打包 / 文件 / migration 安全問題。
+
+> **版本對齊**：套件版本由內部 0.x 體系改為與 git tag 一致的 1.x
+> (0.1.1 → 1.1.0)，自此 `__version__`、MSI、git tag 三者同號。
+
+### 新增 (Added)
+
+**Paper Trading 自動化**
+- `PaperTradingService`：`settle_pending` 用隔日開盤價結算 PENDING 訊號、
+  `FeeCalculator` (台股 0.0855% + 0.3% 證交稅、美股 0.5% min USD 35、滑價 0.05%)、
+  `snapshot_equity` 每日績效快照
+- CLI `stocks-trading-cli daily-routine`：抓資料 → 結算 → 跑策略 → 寫訊號 →
+  快照 → 寄日報；依 ticker 形狀自動分流 SIM-TW / SIM-US
+- CLI `backtest` / `signal-list` 子命令
+- DashboardPage：SIM-TW / SIM-US KPI + 績效曲線；訊號日誌頁接 SignalRepository
+- SettingsPage：SIM 帳本起始資金 + 重置 (`ResetService`，二次確認，保留訊號歷史)
+
+**風險控管 (RiskGuard)**
+- `risk/guard.py`：單筆風險 (1% 法則，依 stop 距離) / 總曝險上限 / 單日熔斷，
+  接進 paper trading 買進路徑 (超限縮股、額度耗盡或熔斷 → `REJECTED_RISK`)
+- 設定頁「風險控管」群組新增「單日熔斷 (%)」欄位 + 說明；CLI 讀設定注入 RiskGuard
+
+**策略**
+- `MeanReversionStrategy`：RSI 超買超賣逆勢 (BUY/SELL)；CLI `--strategy` 可選
+
+**K 線圖表 + 技術分析 (M5.7)**
+- 指標：MA / EMA / RSI (Wilder) / Bollinger / MACD (`analytics/indicators.py`)
+- 形態偵測：黃金/死亡交叉、布林上下軌突破、RSI 超買賣、爆量 (`analytics/patterns.py`)
+- 週期聚合：日/週/月/季/年 K (`analytics/aggregator.py`)
+- ChartPage：pyqtgraph 蠟燭主圖 (MA overlay / 十字游標 / 圖內 OHLC 浮框) +
+  Volume / RSI / MACD 切換式副圖 + 形態清單；換股自動置中、非同步抓資料、
+  成交量軸用「萬/億」單位、價格四捨五入 2 位
+
+**資料安全**
+- Migration 升級前自動整檔備份 (`<db>.bak.<timestamp>`)、失敗自動還原 (release_plan §6.2)
+
+### 修正 (Fixed)
+- `StocksTrading-cli.exe` 原誤指向 `app.py` 會啟動 GUI；改指 `cli/main.py` 才真正跑 CLI
+- Task Scheduler 範本參數從不存在的 `--daily-routine --market` 改為正確子命令
+  `daily-routine --tickers ...`；移除「v1.0 未實作」的過時說明；合併重複範本
+- daily-routine 日報「今日 PnL」改算真實差額 (不再寫死 0)
+- 文件漂移：README 版本 / 測試數 / 里程碑勾選 / 模組結構全面更新為現況
+- mypy strict 對測試碼的漏網 error (先前被 `.mypy_cache` 遮蔽) 一併修正
 
 ### 統計
-- 491 tests 全綠 (+21 from v0.1.1)
-- ruff / mypy strict 全綠
+- 636 tests 全綠
+- ruff / mypy strict 全綠 (`--no-incremental` 清查確認)
 
 ## [0.1.1] — 2026-05-23 — UI 接資料層 + Shioaji 行情
 
