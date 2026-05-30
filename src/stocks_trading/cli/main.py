@@ -337,3 +337,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def cli() -> None:  # pyproject.toml entry — 不回傳 exit code，用 SystemExit
     raise SystemExit(main())
+
+
+if __name__ == "__main__":
+    # cx_Freeze 把本檔當 script 凍結成 StocksTrading-cli.exe，需此入口才會跑 CLI
+    cli()

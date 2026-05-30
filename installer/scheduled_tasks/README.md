@@ -1,36 +1,62 @@
 # Windows Task Scheduler 範本
 
-## 用途
-這兩個 XML 範本用來在 Windows Task Scheduler 註冊自動排程，讓 StocksTrading 每日定時跑策略並寄出摘要 Email．
+每日定時跑 `stocks-trading-cli daily-routine`：抓資料 → 產訊號 → 寫入 SIM 帳本
+→ 寄出每日摘要 Email。台股 / 美股各一個範本（不同觸發時間）。
 
 | 檔案 | 觸發 | 動作 |
 | --- | --- | --- |
-| `tw_market_close.xml` | 週一~五 14:00 (台北) | 跑台股策略 + 寄摘要 |
-| `us_market_close.xml` | 週二~六 05:30 (台北) | 跑美股策略 + 寄摘要 |
+| `tw_market_close.xml` | 週一~五 14:00 (台北) | 跑台股策略 (`--tickers 0050`) + 寄摘要 |
+| `us_market_close.xml` | 週二~六 05:30 (台北) | 跑美股策略 (`--tickers SPY,QQQ,IWM`) + 寄摘要 |
 
-## 匯入方式
+> `daily-routine` 會依 ticker 形狀自動分流（4 碼純數字→台股、其餘→美股），
+> 所以台股範本放台股代號、美股範本放美股代號即可。
 
-開啟「Windows 工作排程器」(taskschd.msc)，匯入 → 選 XML 檔．
+## 1. 先手動確認 CLI 可跑
 
-或用指令列：
+MSI 安裝後（exe 名稱為 `StocksTrading-cli.exe`），或從原始碼安裝後
+（`stocks-trading-cli`），先手動試一次：
+
+```powershell
+where.exe StocksTrading-cli      # 確認實際安裝路徑
+StocksTrading-cli daily-routine --tickers SPY,QQQ --dry-run
+```
+
+`--dry-run` 不寫 DB、不寄信，只印計算結果，適合先驗證流程。
+
+## 2. 確認 / 調整範本
+
+打開對應 XML，視需要調整：
+
+| 欄位 | 說明 |
+| --- | --- |
+| `<Command>` | CLI exe 絕對路徑；預設 `%LOCALAPPDATA%\Programs\StocksTrading\StocksTrading-cli.exe`，請用步驟 1 的 `where` 結果替換 |
+| `<Arguments>` | 子命令形式 `daily-routine --tickers ... --strategy ... --dry-run` |
+| `<StartBoundary>` | 第一次觸發時間（之後每週重複）；日期不影響，只看時間 |
+
+## 3. 匯入
+
+開啟「工作排程器」(`taskschd.msc`) → 匯入工作 → 選 XML；或用指令列：
+
 ```cmd
 schtasks /create /tn "StocksTrading-TW" /xml installer\scheduled_tasks\tw_market_close.xml /f
 schtasks /create /tn "StocksTrading-US" /xml installer\scheduled_tasks\us_market_close.xml /f
 ```
 
-## ⚠ v1.0 重要限制
+匯入後可右鍵「執行」手動觸發一次驗證。
 
-v1.0 的 `StocksTrading-cli.exe` **尚未實作 `--daily-routine` 參數**，僅作預留．
-排程登記後執行會直接 exit (沒做任何事)．
+## 4. 正式啟用（移除 `--dry-run`）
 
-完整的自動化每日策略執行 + email 摘要將在 **v1.5** 完成（M5 Shioaji broker
-與 position repository 完成後）．
+確認連續幾次 dry-run 都正常後，把 `<Arguments>` 裡的 `--dry-run` 拿掉，
+排程就會真正寫入訊號並寄出日報。
 
-v1.0 期間建議：
-- 手動開啟 GUI 每日操作
-- 把排程登記起來但暫停 (Disabled)，等 v1.5 啟用
+## 5. Email 設定
 
-## 修改觸發時間
+要寄日報必須先在 GUI「設定」分頁填好 SMTP（Gmail App Password）。
+排程跑的時候會讀同一份 `%LOCALAPPDATA%\StocksTrading\config.json`。
 
-時間在 `<StartBoundary>2026-01-01T14:00:00</StartBoundary>` 處．
-日期不影響，只看時間部分．要改 13:30 改成 `2026-01-01T13:30:00` 即可．
+## 排程時間建議
+
+| 市場 | 收盤 | 建議排程 (台灣時區) |
+| --- | --- | --- |
+| 台股 | 13:30 | 14:00（收盤後 + 餘裕） |
+| 美股 | 04:00 隔日（冬令） | 05:30 隔日 |

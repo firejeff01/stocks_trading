@@ -87,8 +87,9 @@ gui_exe = Executable(
 )
 
 # CLI 版 (有 console) — debug 與排程使用
+# 注意：必須指向 cli/main.py (而非 app.py)，否則 .exe 會啟動 GUI 而非 CLI
 cli_exe = Executable(
-    script=str(SRC / "stocks_trading" / "app.py"),
+    script=str(SRC / "stocks_trading" / "cli" / "main.py"),
     base=None,  # console window 保留
     target_name="StocksTrading-cli.exe",
 )
