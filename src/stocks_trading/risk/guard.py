@@ -1,9 +1,13 @@
 """RiskGuard — 模擬交易下單前的風控閘門．純邏輯、無 I/O．
 
-三條規則（皆以「成本基礎名目」衡量，避免依賴即時報價）：
+三條規則：
 
-1. 單筆風險上限 (single_pct)：單一持倉名目 ≤ single_pct × equity．
-2. 總曝險上限 (total_exposure_pct)：所有持倉名目合計 ≤ total_exposure_pct × equity．
+1. 單筆風險上限 (single_pct) — 教科書「1% 風險法則」：單筆「虧到停損」的金額
+   ≤ single_pct × equity．即 qty × (entry − stop) ≤ single_pct × equity，
+   換算成名目上限 = (single_pct × equity / 每股風險) × entry．
+   缺 stop 或 stop ≥ entry 時此規則不套用（交由總曝險把關）．
+2. 總曝險上限 (total_exposure_pct)：所有持倉名目合計 ≤ total_exposure_pct × equity
+   （成本基礎，避免依賴即時報價）．
 3. 單日熔斷 (circuit_breaker_pct)：當前權益較「基準權益」(通常為上一筆
    daily_pnl 快照) 下跌 ≥ 門檻時，停止當日所有買進（賣出仍允許以利出場）．
 
@@ -75,6 +79,8 @@ class RiskGuard:
         equity: Decimal,
         current_exposure: Decimal,
         proposed_notional: Decimal,
+        entry_price: Decimal | None = None,
+        stop_price: Decimal | None = None,
         day_start_equity: Decimal | None = None,
     ) -> RiskDecision:
         limits = self._limits
@@ -108,9 +114,18 @@ class RiskGuard:
                 max_notional = remaining
                 reason = "capped_exposure"
 
-        # 3. 單筆風險上限（若比目前 binding 更緊則覆蓋）
-        if limits.single_pct is not None and equity > 0:
-            single_cap = limits.single_pct * equity
+        # 3. 單筆風險上限 — 1% 法則：依 stop 距離換算名目上限
+        #    (缺 stop 或 stop ≥ entry 時不套用，交由總曝險把關)
+        if (
+            limits.single_pct is not None
+            and equity > 0
+            and entry_price is not None
+            and stop_price is not None
+            and entry_price > stop_price
+        ):
+            risk_per_share = entry_price - stop_price
+            max_risk_amount = limits.single_pct * equity
+            single_cap = (max_risk_amount / risk_per_share) * entry_price
             if single_cap < max_notional:
                 max_notional = single_cap
                 reason = "capped_single"

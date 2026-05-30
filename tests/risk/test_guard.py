@@ -40,27 +40,46 @@ class TestNoLimits:
 
 
 class TestSingleTradeCap:
-    def test_caps_to_single_pct(self) -> None:
-        guard = RiskGuard(RiskLimits(single_pct=Decimal("0.25")))
-        # 上限 = 0.25 × 1000 = 250；想買 400 → 縮到 250
+    def test_caps_by_risk_to_stop(self) -> None:
+        # 1% 法則：equity 10000 × 1% = 最多可虧 100
+        # entry 200、stop 180 → 每股風險 20 → 最多 5 股 → 名目上限 1000
+        guard = RiskGuard(RiskLimits(single_pct=Decimal("0.01")))
         d = guard.evaluate_buy(
-            equity=Decimal("1000"),
+            equity=Decimal("10000"),
             current_exposure=Decimal("0"),
-            proposed_notional=Decimal("400"),
+            proposed_notional=Decimal("4000"),
+            entry_price=Decimal("200"),
+            stop_price=Decimal("180"),
         )
         assert d.allowed is True
-        assert d.max_notional == Decimal("250")
+        assert d.max_notional == Decimal("1000")
         assert d.capped is True
         assert d.reason == "capped_single"
 
     def test_under_cap_not_capped(self) -> None:
-        guard = RiskGuard(RiskLimits(single_pct=Decimal("0.25")))
+        guard = RiskGuard(RiskLimits(single_pct=Decimal("0.01")))
         d = guard.evaluate_buy(
-            equity=Decimal("1000"),
+            equity=Decimal("10000"),
             current_exposure=Decimal("0"),
-            proposed_notional=Decimal("200"),
+            proposed_notional=Decimal("600"),
+            entry_price=Decimal("200"),
+            stop_price=Decimal("180"),
         )
-        assert d.max_notional == Decimal("200")
+        assert d.max_notional == Decimal("600")
+        assert d.capped is False
+        assert d.reason == "ok"
+
+    def test_no_stop_skips_single_rule(self) -> None:
+        # 無 stop → 單筆風險規則無法套用 → 不限制 (交給總曝險)
+        guard = RiskGuard(RiskLimits(single_pct=Decimal("0.01")))
+        d = guard.evaluate_buy(
+            equity=Decimal("10000"),
+            current_exposure=Decimal("0"),
+            proposed_notional=Decimal("4000"),
+            entry_price=Decimal("200"),
+            stop_price=None,
+        )
+        assert d.max_notional == Decimal("4000")
         assert d.capped is False
         assert d.reason == "ok"
 
@@ -129,10 +148,10 @@ class TestCircuitBreaker:
 
 class TestCombinedAndConstruction:
     def test_min_of_single_and_exposure_wins(self) -> None:
-        # single 上限 250、exposure 剩餘 100 → 取 min=100，曝險為 binding
+        # single_cap=(0.05×1000/20)×200=500；exposure 剩餘 100 → 取 min=100
         guard = RiskGuard(
             RiskLimits(
-                single_pct=Decimal("0.25"),
+                single_pct=Decimal("0.05"),
                 total_exposure_pct=Decimal("0.8"),
             )
         )
@@ -140,15 +159,17 @@ class TestCombinedAndConstruction:
             equity=Decimal("1000"),
             current_exposure=Decimal("700"),
             proposed_notional=Decimal("400"),
+            entry_price=Decimal("200"),
+            stop_price=Decimal("180"),
         )
         assert d.max_notional == Decimal("100")
         assert d.reason == "capped_exposure"
 
     def test_single_binds_tighter_than_exposure(self) -> None:
-        # single 250、exposure 剩餘 300 → 取 min=250，單筆為 binding
+        # single_cap=(0.01×1000/20)×200=100；exposure 剩餘 300 → 取 min=100
         guard = RiskGuard(
             RiskLimits(
-                single_pct=Decimal("0.25"),
+                single_pct=Decimal("0.01"),
                 total_exposure_pct=Decimal("0.8"),
             )
         )
@@ -156,8 +177,10 @@ class TestCombinedAndConstruction:
             equity=Decimal("1000"),
             current_exposure=Decimal("500"),
             proposed_notional=Decimal("400"),
+            entry_price=Decimal("200"),
+            stop_price=Decimal("180"),
         )
-        assert d.max_notional == Decimal("250")
+        assert d.max_notional == Decimal("100")
         assert d.reason == "capped_single"
 
     def test_from_percentages_converts(self) -> None:
