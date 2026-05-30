@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stocks_trading"
-version = "0.1.1"
+version = "1.1.0"
 description = "Personal automated stock trading system (TW via Shioaji + US via Email signal)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -93,7 +93,13 @@ no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]
-disallow_untyped_defs = false  # tests can omit type hints
+# 測試碼採寬鬆型別規則 (src 仍維持完整 strict)：
+# 允許未標註 / 部分標註的測試函式 (qtbot/tmp_path 等 fixture 參數)，
+# 並容忍殘留的 type: ignore，避免 mypy 版本差異造成 false positive．
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_unused_ignores = false
 
 # ---- coverage ----
 [tool.coverage.run]
