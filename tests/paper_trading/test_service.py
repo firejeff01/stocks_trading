@@ -29,6 +29,7 @@ from stocks_trading.domain.signal_status import SignalStatus
 from stocks_trading.domain.symbol import Symbol
 from stocks_trading.paper_trading.fee_calculator import FeeConfig
 from stocks_trading.paper_trading.service import PaperTradingService
+from stocks_trading.risk.guard import RiskGuard, RiskLimits
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.account_repository import AccountRepository
 from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
@@ -295,6 +296,147 @@ class TestSettlePendingInsufficientCash:
             as_of_date=date(2026, 1, 6),
         )
         assert results[0].status is SignalStatus.FAILED
+
+
+def _service_with_guard(
+    *,
+    signal_repo: SignalRepository,
+    positions_repo: PositionsRepository,
+    daily_pnl_repo: DailyPnlRepository,
+    account_repo: AccountRepository,
+    guard: RiskGuard,
+) -> PaperTradingService:
+    return PaperTradingService(
+        signal_repo=signal_repo,
+        positions_repo=positions_repo,
+        daily_pnl_repo=daily_pnl_repo,
+        account_repo=account_repo,
+        fee_config=FeeConfig(slippage_rate=Decimal("0")),
+        max_positions=4,
+        risk_guard=guard,
+    )
+
+
+class TestSettlePendingRiskGuard:
+    def test_single_cap_reduces_qty(
+        self,
+        signal_repo: SignalRepository,
+        positions_repo: PositionsRepository,
+        daily_pnl_repo: DailyPnlRepository,
+        account_repo: AccountRepository,
+    ) -> None:
+        # single 10% × equity 3000 = 上限 300；原本 budget 750 可買 3 股 @200
+        # → 縮到名目 300 → 只買 1 股
+        svc = _service_with_guard(
+            signal_repo=signal_repo,
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+            account_repo=account_repo,
+            guard=RiskGuard(RiskLimits(single_pct=Decimal("0.10"))),
+        )
+        sig = _make_buy_signal(code="SPY", target="200")
+        signal_repo.save(sig, mode=Mode.SIM, suggested_qty=0)
+        bars = {
+            Symbol("SPY", Market.US): _bars_starting(
+                date(2026, 1, 5), ["200", "200"]
+            ),
+        }
+        results = svc.settle_pending(
+            account_id=SIM_US_ACCOUNT_ID,
+            bars_by_symbol=bars,
+            as_of_date=date(2026, 1, 6),
+        )
+        assert results[0].status is SignalStatus.FILLED
+        pos = positions_repo.find_by_account_and_symbol(
+            SIM_US_ACCOUNT_ID, Symbol("SPY", Market.US)
+        )
+        assert pos is not None
+        assert pos.qty == 1
+
+    def test_exposure_full_rejects(
+        self,
+        signal_repo: SignalRepository,
+        positions_repo: PositionsRepository,
+        daily_pnl_repo: DailyPnlRepository,
+        account_repo: AccountRepository,
+    ) -> None:
+        # 既有 QQQ 持倉名目 400；total 10% × equity(3000+400)=340 < 400 → 整筆擋
+        positions_repo.upsert(
+            Position(
+                account_id=SIM_US_ACCOUNT_ID,
+                symbol=Symbol("QQQ", Market.US),
+                qty=2,
+                avg_price=Decimal("200"),
+                stop_loss=None,
+                opened_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            )
+        )
+        svc = _service_with_guard(
+            signal_repo=signal_repo,
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+            account_repo=account_repo,
+            guard=RiskGuard(RiskLimits(total_exposure_pct=Decimal("0.10"))),
+        )
+        sig = _make_buy_signal(code="SPY", target="200")
+        signal_repo.save(sig, mode=Mode.SIM, suggested_qty=0)
+        bars = {
+            Symbol("SPY", Market.US): _bars_starting(
+                date(2026, 1, 5), ["200", "200"]
+            ),
+        }
+        results = svc.settle_pending(
+            account_id=SIM_US_ACCOUNT_ID,
+            bars_by_symbol=bars,
+            as_of_date=date(2026, 1, 6),
+        )
+        assert results[0].status is SignalStatus.REJECTED_RISK
+        assert "exposure" in results[0].reason
+        assert (
+            positions_repo.find_by_account_and_symbol(
+                SIM_US_ACCOUNT_ID, Symbol("SPY", Market.US)
+            )
+            is None
+        )
+
+    def test_circuit_breaker_rejects(
+        self,
+        signal_repo: SignalRepository,
+        positions_repo: PositionsRepository,
+        daily_pnl_repo: DailyPnlRepository,
+        account_repo: AccountRepository,
+    ) -> None:
+        svc = _service_with_guard(
+            signal_repo=signal_repo,
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+            account_repo=account_repo,
+            guard=RiskGuard(RiskLimits(circuit_breaker_pct=Decimal("0.05"))),
+        )
+        # 基準快照 equity 3000 (cash 3000, 無持倉)
+        svc.snapshot_equity(
+            account_id=SIM_US_ACCOUNT_ID,
+            closing_prices={},
+            snapshot_date=date(2026, 1, 4),
+        )
+        # 當前 cash 掉到 2800 → equity 2800 較基準 3000 跌 6.67% ≥ 5%
+        account_repo.update_equity(
+            SIM_US_ACCOUNT_ID, Money(Decimal("2800"), Currency.USD)
+        )
+        sig = _make_buy_signal(code="SPY", target="200")
+        signal_repo.save(sig, mode=Mode.SIM, suggested_qty=0)
+        bars = {
+            Symbol("SPY", Market.US): _bars_starting(
+                date(2026, 1, 5), ["200", "200"]
+            ),
+        }
+        results = svc.settle_pending(
+            account_id=SIM_US_ACCOUNT_ID,
+            bars_by_symbol=bars,
+            as_of_date=date(2026, 1, 6),
+        )
+        assert results[0].status is SignalStatus.REJECTED_RISK
+        assert "circuit_breaker" in results[0].reason
 
 
 class TestSnapshotEquity:
