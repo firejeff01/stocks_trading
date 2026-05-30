@@ -10,6 +10,7 @@
 """
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,90 @@ class TestApplyPending:
         )
         applied = runner.apply_pending()
         assert applied == [2]
+
+
+class TestBackupBeforeMigrate:
+    def test_no_backup_on_fresh_install(
+        self, db_path: Path, migrations_dir: Path
+    ) -> None:
+        # 全新安裝 (current==0) 沒有資料可備份 → 不應產生 .bak
+        _write_migration(
+            migrations_dir, "0001_a.sql",
+            "CREATE TABLE t1 (id INTEGER PRIMARY KEY);",
+        )
+        MigrationRunner(db_path=db_path, migrations_dir=migrations_dir).apply_pending()
+        assert list(db_path.parent.glob("*.bak.*")) == []
+
+    def test_backup_created_before_upgrade(
+        self, db_path: Path, migrations_dir: Path
+    ) -> None:
+        _write_migration(
+            migrations_dir, "0001_a.sql",
+            "CREATE TABLE t1 (id INTEGER PRIMARY KEY);",
+        )
+        MigrationRunner(
+            db_path=db_path, migrations_dir=migrations_dir
+        ).apply_pending()
+        # 升級：加入 0002 → 應在跑之前備份「升級前」狀態
+        _write_migration(
+            migrations_dir, "0002_b.sql",
+            "CREATE TABLE t2 (id INTEGER PRIMARY KEY);",
+        )
+        runner = MigrationRunner(
+            db_path=db_path,
+            migrations_dir=migrations_dir,
+            clock=lambda: datetime(2026, 5, 31, 14, 2, 30),
+        )
+        runner.apply_pending()
+
+        backup = db_path.with_name("app.db.bak.20260531_140230")
+        assert backup.exists()
+        # 備份內容是升級前：有 t1、無 t2、schema_version=1
+        with sqlite3.connect(backup) as conn:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            ver = conn.execute(
+                "SELECT MAX(version) FROM schema_version"
+            ).fetchone()[0]
+        assert "t1" in tables
+        assert "t2" not in tables
+        assert ver == 1
+
+    def test_failed_upgrade_restores_backup(
+        self, db_path: Path, migrations_dir: Path
+    ) -> None:
+        _write_migration(
+            migrations_dir, "0001_a.sql",
+            "CREATE TABLE t1 (id INTEGER PRIMARY KEY);",
+        )
+        MigrationRunner(
+            db_path=db_path, migrations_dir=migrations_dir
+        ).apply_pending()
+        # 壞的 0002：先 DROP t1 (executescript autocommit 會立即生效)，再壞 SQL．
+        # 若沒有 restore，t1 會永久消失．
+        _write_migration(
+            migrations_dir, "0002_bad.sql",
+            "DROP TABLE t1; THIS IS NOT VALID SQL;",
+        )
+        runner = MigrationRunner(db_path=db_path, migrations_dir=migrations_dir)
+        with pytest.raises(MigrationSyntaxError):
+            runner.apply_pending()
+
+        # restore 後：版本仍 1、t1 還在、t2 不存在
+        assert runner.current_version() == 1
+        with sqlite3.connect(db_path) as conn:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        assert "t1" in tables
+        assert "t2" not in tables
 
 
 class TestErrorHandling:

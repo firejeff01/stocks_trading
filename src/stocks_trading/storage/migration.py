@@ -7,11 +7,18 @@ schema_version 表持久化當前版本，達成 idempotent + 中斷恢復．
 from __future__ import annotations
 
 import re
+import shutil
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _FILENAME_PATTERN = re.compile(r"^(\d{4})_[A-Za-z0-9_-]+\.sql$")
+
+
+def _default_clock() -> datetime:
+    return datetime.now()
 
 
 class MigrationError(Exception):
@@ -33,9 +40,17 @@ class _MigrationFile:
 
 
 class MigrationRunner:
-    def __init__(self, *, db_path: Path, migrations_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: Path,
+        migrations_dir: Path,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._db_path = db_path
         self._migrations_dir = migrations_dir
+        # clock 可注入便於測試備份檔名 (預設用系統時間)
+        self._clock: Callable[[], datetime] = clock or _default_clock
 
     def current_version(self) -> int:
         with sqlite3.connect(self._db_path) as conn:
@@ -51,25 +66,54 @@ class MigrationRunner:
 
         current = self.current_version()
         pending = [f for f in files if f.version > current]
-        applied: list[int] = []
+        if not pending:
+            return []
 
-        for migration in pending:
-            sql = migration.path.read_text(encoding="utf-8")
-            with sqlite3.connect(self._db_path) as conn:
-                self._ensure_schema_version_table(conn)
-                try:
-                    conn.executescript(sql)
-                except sqlite3.Error as exc:
-                    # connect() context manager 已會 rollback；補強訊息
-                    raise MigrationSyntaxError(
-                        f"Migration {migration.path.name} 執行失敗: {exc}"
-                    ) from exc
-                conn.execute(
-                    "INSERT INTO schema_version (version, filename) VALUES (?, ?)",
-                    (migration.version, migration.path.name),
-                )
-            applied.append(migration.version)
+        # 升級既有 DB (current>0) 前先整檔備份；全新安裝無資料可失，不備份．
+        # executescript 在 SQLite autocommit 下會逐句立即落地，部分套用的壞
+        # migration 會破壞資料，故失敗時用備份還原 (對應 release_plan §6.2)．
+        backup = self._backup_database() if current > 0 else None
+
+        applied: list[int] = []
+        try:
+            for migration in pending:
+                self._apply_one(migration)
+                applied.append(migration.version)
+        except MigrationSyntaxError:
+            if backup is not None:
+                self._restore_database(backup)
+            raise
         return applied
+
+    def _apply_one(self, migration: _MigrationFile) -> None:
+        sql = migration.path.read_text(encoding="utf-8")
+        conn = sqlite3.connect(self._db_path)
+        try:
+            self._ensure_schema_version_table(conn)
+            try:
+                conn.executescript(sql)
+            except sqlite3.Error as exc:
+                conn.rollback()
+                raise MigrationSyntaxError(
+                    f"Migration {migration.path.name} 執行失敗: {exc}"
+                ) from exc
+            conn.execute(
+                "INSERT INTO schema_version (version, filename) VALUES (?, ?)",
+                (migration.version, migration.path.name),
+            )
+            conn.commit()
+        finally:
+            # 顯式關閉釋放檔案鎖，確保失敗時 restore 能覆寫 db (Windows)
+            conn.close()
+
+    def _backup_database(self) -> Path:
+        ts = self._clock().strftime("%Y%m%d_%H%M%S")
+        backup = self._db_path.with_name(f"{self._db_path.name}.bak.{ts}")
+        shutil.copy2(self._db_path, backup)
+        return backup
+
+    def _restore_database(self, backup: Path) -> None:
+        shutil.copy2(backup, self._db_path)
 
     # ---- internals ----
     @staticmethod
