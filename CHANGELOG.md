@@ -25,9 +25,10 @@
 - SettingsPage：SIM 帳本起始資金 + 重置 (`ResetService`，二次確認，保留訊號歷史)
 
 **風險控管 (RiskGuard)**
-- `risk/guard.py`：單筆風險 (1% 法則，依 stop 距離) / 總曝險上限 / 單日熔斷，
-  接進 paper trading 買進路徑 (超限縮股、額度耗盡或熔斷 → `REJECTED_RISK`)
-- 設定頁「風險控管」群組新增「單日熔斷 (%)」欄位 + 說明；CLI 讀設定注入 RiskGuard
+- `risk/guard.py`：單檔資金上限 (名目 ≤ X% × equity，預設 20%) / 總曝險上限 /
+  單日熔斷，接進 paper trading 買進路徑 (超限縮股、額度耗盡或熔斷 → `REJECTED_RISK`)
+- 設定頁「風險控管」群組新增「單檔上限」「單日熔斷 (%)」欄位 + 說明；
+  CLI 讀設定注入 RiskGuard
 
 **策略**
 - `MeanReversionStrategy`：RSI 超買超賣逆勢 (BUY/SELL)；CLI `--strategy` 可選
@@ -52,7 +53,7 @@
 - mypy strict 對測試碼的漏網 error (先前被 `.mypy_cache` 遮蔽) 一併修正
 
 ### 統計
-- 636 tests 全綠
+- 635 tests 全綠
 - ruff / mypy strict 全綠 (`--no-incremental` 清查確認)
 
 ## [0.1.1] — 2026-05-23 — UI 接資料層 + Shioaji 行情

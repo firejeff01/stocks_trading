@@ -26,8 +26,8 @@ class TestEmptyConfig:
         qtbot.addWidget(page)
         # SMTP host 預設空字串
         assert page.smtp_host_value() == ""
-        # 單筆風險預設 1.0
-        assert page.single_risk_pct_value() == 1.0
+        # 單檔上限預設 20.0 (每檔最多投 20% 資金)
+        assert page.single_risk_pct_value() == 20.0
         # 單日熔斷預設 0.0 (停用，需使用者自行開啟)
         assert page.circuit_breaker_pct_value() == 0.0
 

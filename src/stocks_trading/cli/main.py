@@ -26,11 +26,12 @@ if TYPE_CHECKING:
 def _build_risk_guard(config: ConfigStore) -> RiskGuard:
     """從 config 讀風控三參數建 RiskGuard．
 
-    single/total 未設定時用 SettingsPage 預設 (1% / 80%)；任一為 0 視為停用該規則．
+    single/total 未設定時用 SettingsPage 預設 (單檔 20% / 總曝險 80%)；
+    任一為 0 視為停用該規則．
     """
     from stocks_trading.risk.guard import RiskGuard, RiskLimits
 
-    single = float(config.get_plain("risk.single_pct", 1.0) or 0.0)
+    single = float(config.get_plain("risk.single_pct", 20.0) or 0.0)
     total = float(config.get_plain("risk.total_exposure_pct", 80.0) or 0.0)
     cb = float(config.get_plain("risk.circuit_breaker_pct", 0.0) or 0.0)
     return RiskGuard(

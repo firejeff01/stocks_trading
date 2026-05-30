@@ -104,8 +104,6 @@ class TestBuildRiskGuard:
             equity=Decimal("1000"),
             current_exposure=Decimal("5000"),
             proposed_notional=Decimal("400"),
-            entry_price=Decimal("200"),
-            stop_price=Decimal("180"),
             day_start_equity=Decimal("2000"),
         )
         assert d.allowed is True

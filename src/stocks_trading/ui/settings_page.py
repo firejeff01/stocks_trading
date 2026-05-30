@@ -357,11 +357,11 @@ class SettingsPage(QWidget):
     def _build_risk_group(self) -> QGroupBox:
         group = QGroupBox("風險控管 (Paper Trading 生效)")
         form = QFormLayout(group)
-        form.addRow(QLabel("單筆風險 (%)"), self._single_risk_pct)
+        form.addRow(QLabel("單檔上限 (% 資金)"), self._single_risk_pct)
         form.addRow(QLabel("總曝險 (%)"), self._total_exposure_pct)
         form.addRow(QLabel("單日熔斷 (%)"), self._circuit_breaker_pct)
         hint = QLabel(
-            "單筆風險＝虧到停損上限 (1% 法則)；總曝險＝持倉名目上限；"
+            "單檔上限＝每檔持倉名目佔總資金上限 (預設 20%)；總曝險＝所有持倉名目上限；"
             "單日熔斷＝跌幅達此值停買 (0=停用)．"
         )
         hint.setObjectName("muted")
@@ -427,7 +427,7 @@ class SettingsPage(QWidget):
             self._smtp_password.setText(pwd)
 
         self._single_risk_pct.setValue(
-            float(self._config.get_plain("risk.single_pct", 1.0) or 1.0)
+            float(self._config.get_plain("risk.single_pct", 20.0) or 20.0)
         )
         self._total_exposure_pct.setValue(
             float(self._config.get_plain("risk.total_exposure_pct", 80.0) or 80.0)

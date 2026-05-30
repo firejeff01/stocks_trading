@@ -187,8 +187,6 @@ class PaperTradingService:
                 equity=risk_ctx.equity,
                 current_exposure=risk_ctx.exposure,
                 proposed_notional=fill * Decimal(qty),
-                entry_price=fill,
-                stop_price=sig.stop_loss.amount,
                 day_start_equity=risk_ctx.day_start_equity,
             )
             if not decision.allowed:

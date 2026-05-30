@@ -57,7 +57,7 @@
 - `pm/` — PM 階段需求文件 (v0.3 凍結)
 - `sa/` — SA 階段系統分析與架構設計
 - `src/stocks_trading/` — 主程式碼
-- `tests/` — pytest 測試套件 (636 tests 全綠)
+- `tests/` — pytest 測試套件 (635 tests 全綠)
 - `installer/` — cx_Freeze 打包腳本 + Task Scheduler 範本
 
 ## 開發原則
@@ -102,7 +102,7 @@ src/stocks_trading/
 - [x] **Paper Trading**：PaperTradingService + CLI daily-routine + SIM 帳本 + 績效曲線
 - [x] **MeanReversion** 策略 (RSI 逆勢)
 - [x] **M5.7 (v1.5)**：K 線圖表 + 技術指標 (MA/RSI/MACD/Bollinger) + 形態偵測
-- [x] **RiskGuard 風控**：單筆風險 (1% 法則) / 總曝險 / 單日熔斷
+- [x] **RiskGuard 風控**：單檔上限 (預設 20% 資金) / 總曝險 / 單日熔斷
 - [x] **→ v1.1.0 release** ←
 - [ ] M5 (v1.5)：實盤模式、ShioajiBroker、Email Broker for US
 - [ ] M5.5 (v2.0)：新聞情緒分析

@@ -325,15 +325,14 @@ class TestSettlePendingRiskGuard:
         daily_pnl_repo: DailyPnlRepository,
         account_repo: AccountRepository,
     ) -> None:
-        # 1% 法則：單筆風險 0.5% × equity 3000 = 最多可虧 15
-        # entry 200、stop 190 (target×0.95) → 每股風險 10 → 最多 1.5 股 → 名目 300
-        # 原 budget 750 (3 股) 被縮到名目 300 → 只買 1 股
+        # 單檔上限 10% × equity 3000 = 名目 300；原 budget 750 (3 股 @200=600)
+        # 被縮到名目 300 → 只買 1 股
         svc = _service_with_guard(
             signal_repo=signal_repo,
             positions_repo=positions_repo,
             daily_pnl_repo=daily_pnl_repo,
             account_repo=account_repo,
-            guard=RiskGuard(RiskLimits(single_pct=Decimal("0.005"))),
+            guard=RiskGuard(RiskLimits(single_pct=Decimal("0.10"))),
         )
         sig = _make_buy_signal(code="SPY", target="200")
         signal_repo.save(sig, mode=Mode.SIM, suggested_qty=0)
