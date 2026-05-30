@@ -10,12 +10,24 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from stocks_trading import __version__ as pkg_version
 from stocks_trading.cli import main as cli_main
+from stocks_trading.config.store import ConfigStore
+from stocks_trading.security.dpapi import DpapiCipher
+
+
+def _store(tmp_path: Path) -> ConfigStore:
+    return ConfigStore(
+        config_path=tmp_path / "config.json",
+        secrets_path=tmp_path / "secrets.dat",
+        cipher=DpapiCipher(),
+    )
 
 
 class TestCliVersion:
@@ -78,6 +90,40 @@ class TestCliSignalListDispatch:
         args = invoked["args"]
         assert getattr(args, "limit", None) == 5
         assert getattr(args, "output", None) == "json"
+
+
+class TestBuildRiskGuard:
+    def test_zero_values_disable_all_rules(self, tmp_path: Path) -> None:
+        config = _store(tmp_path)
+        config.set_plain("risk.single_pct", 0.0)
+        config.set_plain("risk.total_exposure_pct", 0.0)
+        config.set_plain("risk.circuit_breaker_pct", 0.0)
+        guard = cli_main._build_risk_guard(config)
+        # 全部停用 → 即使曝險爆表 / 權益腰斬也照常允許整筆
+        d = guard.evaluate_buy(
+            equity=Decimal("1000"),
+            current_exposure=Decimal("5000"),
+            proposed_notional=Decimal("400"),
+            entry_price=Decimal("200"),
+            stop_price=Decimal("180"),
+            day_start_equity=Decimal("2000"),
+        )
+        assert d.allowed is True
+        assert d.max_notional == Decimal("400")
+
+    def test_circuit_breaker_read_from_config(self, tmp_path: Path) -> None:
+        config = _store(tmp_path)
+        config.set_plain("risk.circuit_breaker_pct", 5.0)
+        guard = cli_main._build_risk_guard(config)
+        # 從 1000 跌到 900 = -10% ≥ 5% → 停買
+        d = guard.evaluate_buy(
+            equity=Decimal("900"),
+            current_exposure=Decimal("0"),
+            proposed_notional=Decimal("100"),
+            day_start_equity=Decimal("1000"),
+        )
+        assert d.allowed is False
+        assert d.reason == "blocked_circuit_breaker"
 
 
 class TestCliBacktestDispatch:

@@ -28,6 +28,8 @@ class TestEmptyConfig:
         assert page.smtp_host_value() == ""
         # 單筆風險預設 1.0
         assert page.single_risk_pct_value() == 1.0
+        # 單日熔斷預設 0.0 (停用，需使用者自行開啟)
+        assert page.circuit_breaker_pct_value() == 0.0
 
 
 class TestLoadExistingConfig:
@@ -51,10 +53,12 @@ class TestLoadExistingConfig:
     def test_risk_params_loaded(self, qtbot: QtBot, config: ConfigStore) -> None:
         config.set_plain("risk.single_pct", 1.5)
         config.set_plain("risk.total_exposure_pct", 75.0)
+        config.set_plain("risk.circuit_breaker_pct", 4.0)
         page = SettingsPage(config=config)
         qtbot.addWidget(page)
         assert page.single_risk_pct_value() == 1.5
         assert page.total_exposure_pct_value() == 75.0
+        assert page.circuit_breaker_pct_value() == 4.0
 
 
 class TestSave:
@@ -79,9 +83,11 @@ class TestSave:
         qtbot.addWidget(page)
         page.set_single_risk_pct(2.0)
         page.set_total_exposure_pct(80.0)
+        page.set_circuit_breaker_pct(3.0)
         page.save()
         assert config.get_plain("risk.single_pct") == 2.0
         assert config.get_plain("risk.total_exposure_pct") == 80.0
+        assert config.get_plain("risk.circuit_breaker_pct") == 3.0
 
     def test_save_does_not_leak_password_to_plain(
         self, qtbot: QtBot, config: ConfigStore

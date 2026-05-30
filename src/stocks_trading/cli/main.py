@@ -13,9 +13,29 @@ import argparse
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from stocks_trading import __version__
 from stocks_trading.cli.strategy_factory import AVAILABLE_STRATEGIES
+
+if TYPE_CHECKING:
+    from stocks_trading.config.store import ConfigStore
+    from stocks_trading.risk.guard import RiskGuard
+
+
+def _build_risk_guard(config: ConfigStore) -> RiskGuard:
+    """從 config 讀風控三參數建 RiskGuard．
+
+    single/total 未設定時用 SettingsPage 預設 (1% / 80%)；任一為 0 視為停用該規則．
+    """
+    from stocks_trading.risk.guard import RiskGuard, RiskLimits
+
+    single = float(config.get_plain("risk.single_pct", 1.0) or 0.0)
+    total = float(config.get_plain("risk.total_exposure_pct", 80.0) or 0.0)
+    cb = float(config.get_plain("risk.circuit_breaker_pct", 0.0) or 0.0)
+    return RiskGuard(
+        RiskLimits.from_percentages(single=single, total=total, circuit_breaker=cb)
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -184,6 +204,7 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
         account_repo=account_repo,
         fee_config=fee_config,
         max_positions=4,
+        risk_guard=_build_risk_guard(config),
     )
 
     notify = (

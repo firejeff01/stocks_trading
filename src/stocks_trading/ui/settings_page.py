@@ -101,6 +101,9 @@ class SettingsPage(QWidget):
         self._single_risk_pct.setSingleStep(0.1)
         self._total_exposure_pct = QDoubleSpinBox()
         self._total_exposure_pct.setRange(0.0, 100.0)
+        self._circuit_breaker_pct = QDoubleSpinBox()
+        self._circuit_breaker_pct.setRange(0.0, 100.0)
+        self._circuit_breaker_pct.setSingleStep(0.5)
 
         # Shioaji 區塊 (兩個欄位都走 secret 命名空間)
         self._shioaji_api_key = QLineEdit()
@@ -145,6 +148,9 @@ class SettingsPage(QWidget):
     def total_exposure_pct_value(self) -> float:
         return self._total_exposure_pct.value()
 
+    def circuit_breaker_pct_value(self) -> float:
+        return self._circuit_breaker_pct.value()
+
     # ---- public setters for tests ----
     def set_smtp_host(self, v: str) -> None:
         self._smtp_host.setText(v)
@@ -166,6 +172,9 @@ class SettingsPage(QWidget):
 
     def set_total_exposure_pct(self, v: float) -> None:
         self._total_exposure_pct.setValue(v)
+
+    def set_circuit_breaker_pct(self, v: float) -> None:
+        self._circuit_breaker_pct.setValue(v)
 
     # ---- Shioaji helpers ----
     def shioaji_api_key_value(self) -> str:
@@ -282,6 +291,9 @@ class SettingsPage(QWidget):
         self._config.set_plain(
             "risk.total_exposure_pct", self._total_exposure_pct.value()
         )
+        self._config.set_plain(
+            "risk.circuit_breaker_pct", self._circuit_breaker_pct.value()
+        )
 
         # Shioaji api_key + secret_key 都走 secret 命名空間
         sj_api = self._shioaji_api_key.text()
@@ -343,10 +355,18 @@ class SettingsPage(QWidget):
         return group
 
     def _build_risk_group(self) -> QGroupBox:
-        group = QGroupBox("風險控管")
+        group = QGroupBox("風險控管 (Paper Trading 生效)")
         form = QFormLayout(group)
         form.addRow(QLabel("單筆風險 (%)"), self._single_risk_pct)
         form.addRow(QLabel("總曝險 (%)"), self._total_exposure_pct)
+        form.addRow(QLabel("單日熔斷 (%)"), self._circuit_breaker_pct)
+        hint = QLabel(
+            "單筆風險＝虧到停損上限 (1% 法則)；總曝險＝持倉名目上限；"
+            "單日熔斷＝跌幅達此值停買 (0=停用)．"
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        form.addRow("", hint)
         return group
 
     def _build_sim_accounts_group(self) -> QGroupBox:
@@ -411,6 +431,9 @@ class SettingsPage(QWidget):
         )
         self._total_exposure_pct.setValue(
             float(self._config.get_plain("risk.total_exposure_pct", 80.0) or 80.0)
+        )
+        self._circuit_breaker_pct.setValue(
+            float(self._config.get_plain("risk.circuit_breaker_pct", 0.0) or 0.0)
         )
 
         sj_api = self._config.get_secret("shioaji.api_key")
