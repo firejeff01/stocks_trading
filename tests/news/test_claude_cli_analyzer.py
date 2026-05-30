@@ -226,7 +226,7 @@ class TestAnalyzeErrors:
     def test_claude_unavailable_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import stocks_trading.news.claude_cli_analyzer as mod
 
-        monkeypatch.setattr(mod.shutil, "which", lambda _name: None)
+        monkeypatch.setattr("shutil.which", lambda _name: None)
         monkeypatch.setattr(mod, "_KNOWN_CLAUDE_PATHS", ())  # 連已知路徑也清空
         analyzer = ClaudeCliAnalyzer(
             runner=_QueueRunner([_ok_envelope()]),
