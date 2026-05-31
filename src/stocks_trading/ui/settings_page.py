@@ -35,6 +35,7 @@ from stocks_trading.ui.widgets.no_wheel import (
     NoWheelDoubleSpinBox,
     NoWheelSpinBox,
 )
+from stocks_trading.ui.widgets.toast import show_toast
 
 
 class _NotificationServiceLike(Protocol):
@@ -255,8 +256,10 @@ class SettingsPage(QWidget):
             )
         except (ValueError, LookupError) as exc:
             self._sim_status_label.setText(f"✗ 重置失敗：{exc}")
+            self._toast(f"✗ 重置失敗：{exc}", "error")
             return
         self._sim_status_label.setText(f"✓ {label} 已重置 ({new_init})")
+        self._toast(f"✓ {label} 已重置", "success")
 
     @staticmethod
     def _default_confirm(message: str) -> bool:
@@ -292,12 +295,23 @@ class SettingsPage(QWidget):
         ok = self.send_test_email()
         if ok:
             self._test_status_label.setText("✓ 測試信已寄出，請檢查收件匣")
+            self._toast("✓ 測試信已寄出，請檢查收件匣", "success")
         else:
             self._test_status_label.setText(
                 "✗ 寄送失敗，請確認 SMTP host / 認證資訊"
             )
+            self._toast("✗ 寄送失敗，請確認 SMTP host / 認證資訊", "error")
+
+    # ---- toast ----
+    def _toast(self, message: str, kind: str) -> None:
+        """跳浮動提示 (取代只有底部小字看不清楚的問題)．"""
+        show_toast(self, message, kind=kind)
 
     # ---- save ----
+    def _on_save_clicked(self) -> None:
+        self.save()
+        self._toast("✓ 設定已儲存", "success")
+
     def save(self) -> None:
         self._config.set_plain("smtp.host", self._smtp_host.text())
         self._config.set_plain("smtp.port", self._smtp_port.value())
@@ -362,7 +376,7 @@ class SettingsPage(QWidget):
         test_btn.clicked.connect(self._on_test_email_clicked)
         actions.addWidget(test_btn)
         save_btn = QPushButton("儲存設定")
-        save_btn.clicked.connect(self.save)
+        save_btn.clicked.connect(self._on_save_clicked)
         actions.addWidget(save_btn)
         inner.addLayout(actions)
 
@@ -453,10 +467,12 @@ class SettingsPage(QWidget):
         ok = self.test_shioaji_connection()
         if ok:
             self._shioaji_status_label.setText("✓ Shioaji 登入成功")
+            self._toast("✓ Shioaji 登入成功", "success")
         else:
             self._shioaji_status_label.setText(
                 "✗ 連線失敗，請確認 API Key / Secret Key"
             )
+            self._toast("✗ 連線失敗，請確認 API Key / Secret Key", "error")
 
     def _load_from_config(self) -> None:
         self._smtp_host.setText(self._config.get_plain("smtp.host", "") or "")

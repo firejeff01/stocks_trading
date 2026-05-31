@@ -10,12 +10,18 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
+from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from stocks_trading.config.store import ConfigStore
 from stocks_trading.ui.settings_page import SettingsPage
 
 ShioajiTester = Callable[[str, str], bool]
+
+
+def _toasts(page: SettingsPage) -> list[QLabel]:
+    """頁面上目前存在的 toast (浮動提示)．"""
+    return [w for w in page.findChildren(QLabel) if w.property("toast_widget")]
 
 
 class TestEmptyConfig:
@@ -349,6 +355,17 @@ class TestSimAccountsSection:
         page.set_sim_us_init(1000.0)
         assert page.sim_us_init_value() == 1000.0
 
+    def test_reset_shows_success_toast(
+        self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
+    ) -> None:
+        page, _, _, _ = self._build_page(qtbot, config, tmp_path, confirm=True)
+        page.set_sim_us_init(1000.0)
+        page.reset_sim_us()
+        toasts = [
+            w for w in page.findChildren(QLabel) if w.property("toast_widget")
+        ]
+        assert any(t.property("toast_kind") == "success" for t in toasts)
+
     def test_reset_us_calls_service_when_confirmed(
         self, qtbot: QtBot, config: ConfigStore, tmp_path  # type: ignore[no-untyped-def]
     ) -> None:
@@ -413,3 +430,65 @@ class TestSimAccountsSection:
         )
         page.reset_sim_tw()
         assert positions_repo.find_by_account(SIM_TW_ACCOUNT_ID) == []
+
+
+class TestToastFeedback:
+    """按下動作後要跳浮動提示 (toast)，不能只有底部小字．"""
+
+    def test_save_shows_success_toast(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert _toasts(page) == []
+        page._on_save_clicked()
+        toasts = _toasts(page)
+        assert any("儲存" in t.text() for t in toasts)
+        assert any(t.property("toast_kind") == "success" for t in toasts)
+
+    def test_test_email_success_shows_success_toast(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        mock_service = MagicMock()
+        mock_service.send_test_email.return_value = True
+        page = SettingsPage(
+            config=config,
+            notification_service_builder=lambda _cfg: mock_service,
+        )
+        qtbot.addWidget(page)
+        page._on_test_email_clicked()
+        toasts = _toasts(page)
+        assert any(t.property("toast_kind") == "success" for t in toasts)
+
+    def test_test_email_failure_shows_error_toast(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(
+            config=config,
+            notification_service_builder=lambda _cfg: None,
+        )
+        qtbot.addWidget(page)
+        page._on_test_email_clicked()
+        toasts = _toasts(page)
+        assert any(t.property("toast_kind") == "error" for t in toasts)
+
+    def test_shioaji_success_shows_success_toast(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(config=config, shioaji_tester=lambda _a, _s: True)
+        qtbot.addWidget(page)
+        page.set_shioaji_api_key("K")
+        page.set_shioaji_secret_key("S")
+        page._on_test_shioaji_clicked()
+        toasts = _toasts(page)
+        assert any(t.property("toast_kind") == "success" for t in toasts)
+
+    def test_shioaji_failure_shows_error_toast(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        # 空白金鑰 → test_shioaji_connection 回 False → 應跳 error toast
+        page = SettingsPage(config=config, shioaji_tester=lambda _a, _s: True)
+        qtbot.addWidget(page)
+        page._on_test_shioaji_clicked()
+        toasts = _toasts(page)
+        assert any(t.property("toast_kind") == "error" for t in toasts)
