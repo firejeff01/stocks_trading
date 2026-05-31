@@ -104,6 +104,12 @@ class TestQssGeneration:
         assert "QMainWindow" in qss
         assert "QPushButton" in qss
 
+    def test_qss_styles_scrollbar(self, config: ConfigStore) -> None:
+        # 捲軸要主題化 (handle + 去掉原生上下箭頭按鈕)
+        qss = ThemeManager(config=config).generate_qss()
+        assert "QScrollBar::handle:vertical" in qss
+        assert "QScrollBar::add-line:vertical" in qss  # 箭頭按鈕設為 0 高
+
 
 class TestModeColors:
     def test_sim_is_green_family(self) -> None:

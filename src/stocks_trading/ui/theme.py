@@ -187,4 +187,47 @@ QHeaderView::section {{
     padding: 6px 8px;
     font-weight: 600;
 }}
+
+/* 捲軸：扁平主題化 (去掉原生上下箭頭按鈕，handle 位置清楚反映捲動位置) */
+QScrollArea {{
+    border: none;
+}}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 12px;
+    margin: 2px;
+}}
+QScrollBar::handle:vertical {{
+    background: {p.border};
+    border-radius: 5px;
+    min-height: 32px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {p.muted};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 12px;
+    margin: 2px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {p.border};
+    border-radius: 5px;
+    min-width: 32px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {p.muted};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+}}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: transparent;
+}}
 """
