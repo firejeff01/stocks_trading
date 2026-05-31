@@ -401,7 +401,17 @@ def _run_news(args: argparse.Namespace) -> int:
     def _http_get(url: str) -> str:
         import urllib.request
 
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        # 帶 User-Agent；多數新聞站 (如 CNBC) 會擋預設的 Python-urllib UA (HTTP 403)
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "StocksTrading/1.1 news-fetcher"
+                )
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return str(resp.read().decode("utf-8", errors="replace"))
 
     def _yf_news(ticker: str) -> list[dict[str, Any]]:
