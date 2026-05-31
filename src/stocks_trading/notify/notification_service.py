@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from stocks_trading.config.store import ConfigStore
@@ -20,6 +21,7 @@ from stocks_trading.domain.money import Money
 from stocks_trading.domain.signal import Signal
 from stocks_trading.notify.daily_summary import DailySummaryBuilder, HoldingSummary
 from stocks_trading.notify.email_message import EmailMessage
+from stocks_trading.notify.news_digest import DigestCandidate, NewsDigestBuilder
 from stocks_trading.notify.smtp_client import (
     SmtpClient,
     SmtpConfig,
@@ -42,6 +44,7 @@ class NotificationService:
         self._recipients = recipients
         self._daily_builder = DailySummaryBuilder()
         self._alert_builder = SystemAlertBuilder()
+        self._digest_builder = NewsDigestBuilder()
 
     # ---- factory ----
     @classmethod
@@ -109,6 +112,25 @@ class NotificationService:
             todays_signals=todays_signals,
             sender=self._sender,
             recipients=self._recipients,
+        )
+        self._smtp.send(msg)
+
+    def send_news_digest(
+        self,
+        *,
+        candidates: list[DigestCandidate],
+        llm_calls: int,
+        llm_cost_usd: Decimal,
+        as_of: date,
+        is_live: bool = False,
+    ) -> None:
+        msg = self._digest_builder.build(
+            candidates=candidates,
+            llm_calls=llm_calls,
+            llm_cost_usd=llm_cost_usd,
+            as_of=as_of,
+            recipient=self._recipients[0],
+            is_live=is_live,
         )
         self._smtp.send(msg)
 

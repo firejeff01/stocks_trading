@@ -124,6 +124,28 @@ class TestBuildRiskGuard:
         assert d.reason == "blocked_circuit_breaker"
 
 
+class TestCliNewsDispatch:
+    def test_news_subcommand_invokes_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invoked: dict[str, Any] = {}
+
+        def fake_handler(args: Any) -> int:
+            invoked["args"] = args
+            return 0
+
+        monkeypatch.setattr(cli_main, "_run_news", fake_handler)
+        rc = cli_main.main(
+            ["news", "--tickers", "AAPL,NVDA", "--dry-run", "--limit", "5"]
+        )
+        assert rc == 0
+        args = invoked["args"]
+        assert getattr(args, "tickers", None) == ["AAPL", "NVDA"]
+        assert getattr(args, "dry_run", None) is True
+        assert getattr(args, "limit", None) == 5
+        assert getattr(args, "no_rss", None) is False
+
+
 class TestCliBacktestDispatch:
     def test_backtest_subcommand_invokes_handler(
         self, monkeypatch: pytest.MonkeyPatch
