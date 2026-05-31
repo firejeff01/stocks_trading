@@ -105,6 +105,13 @@ class SettingsPage(QWidget):
         self._circuit_breaker_pct.setRange(0.0, 100.0)
         self._circuit_breaker_pct.setSingleStep(0.5)
 
+        # 新聞情緒分析 (v2.0)
+        self._news_max_calls = QSpinBox()
+        self._news_max_calls.setRange(1, 10_000)
+        self._news_ticker_conf = QDoubleSpinBox()
+        self._news_ticker_conf.setRange(0.0, 100.0)
+        self._news_ticker_conf.setSingleStep(5.0)
+
         # Shioaji 區塊 (兩個欄位都走 secret 命名空間)
         self._shioaji_api_key = QLineEdit()
         self._shioaji_api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -151,6 +158,12 @@ class SettingsPage(QWidget):
     def circuit_breaker_pct_value(self) -> float:
         return self._circuit_breaker_pct.value()
 
+    def news_max_calls_value(self) -> int:
+        return self._news_max_calls.value()
+
+    def news_ticker_confidence_value(self) -> float:
+        return self._news_ticker_conf.value()
+
     # ---- public setters for tests ----
     def set_smtp_host(self, v: str) -> None:
         self._smtp_host.setText(v)
@@ -175,6 +188,12 @@ class SettingsPage(QWidget):
 
     def set_circuit_breaker_pct(self, v: float) -> None:
         self._circuit_breaker_pct.setValue(v)
+
+    def set_news_max_calls(self, v: int) -> None:
+        self._news_max_calls.setValue(v)
+
+    def set_news_ticker_confidence(self, v: float) -> None:
+        self._news_ticker_conf.setValue(v)
 
     # ---- Shioaji helpers ----
     def shioaji_api_key_value(self) -> str:
@@ -295,6 +314,13 @@ class SettingsPage(QWidget):
             "risk.circuit_breaker_pct", self._circuit_breaker_pct.value()
         )
 
+        self._config.set_plain(
+            "news.daily_max_calls", self._news_max_calls.value()
+        )
+        self._config.set_plain(
+            "news.ticker_confidence_pct", self._news_ticker_conf.value()
+        )
+
         # Shioaji api_key + secret_key 都走 secret 命名空間
         sj_api = self._shioaji_api_key.text()
         sj_secret = self._shioaji_secret_key.text()
@@ -324,6 +350,7 @@ class SettingsPage(QWidget):
         inner.addWidget(self._build_smtp_group())
         inner.addWidget(self._build_shioaji_group())
         inner.addWidget(self._build_risk_group())
+        inner.addWidget(self._build_news_group())
         inner.addWidget(self._build_sim_accounts_group())
 
         actions = QHBoxLayout()
@@ -363,6 +390,20 @@ class SettingsPage(QWidget):
         hint = QLabel(
             "單檔上限＝每檔持倉名目佔總資金上限 (預設 20%)；總曝險＝所有持倉名目上限；"
             "單日熔斷＝跌幅達此值停買 (0=停用)．"
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        form.addRow("", hint)
+        return group
+
+    def _build_news_group(self) -> QGroupBox:
+        group = QGroupBox("新聞情緒分析 (v2.0)")
+        form = QFormLayout(group)
+        form.addRow(QLabel("每日分析上限 (篇)"), self._news_max_calls)
+        form.addRow(QLabel("Ticker 信心門檻 (%)"), self._news_ticker_conf)
+        hint = QLabel(
+            "每日分析上限＝CostGuard 每天最多跑幾篇 claude -p (每篇約消耗 Max 額度 "
+            "$0.06~0.08)；信心門檻＝低於此信心的個股對應視為幻覺丟棄 (預設 60%)．"
         )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
@@ -434,6 +475,15 @@ class SettingsPage(QWidget):
         )
         self._circuit_breaker_pct.setValue(
             float(self._config.get_plain("risk.circuit_breaker_pct", 0.0) or 0.0)
+        )
+
+        self._news_max_calls.setValue(
+            int(self._config.get_plain("news.daily_max_calls", 40) or 40)
+        )
+        self._news_ticker_conf.setValue(
+            float(
+                self._config.get_plain("news.ticker_confidence_pct", 60.0) or 60.0
+            )
         )
 
         sj_api = self._config.get_secret("shioaji.api_key")

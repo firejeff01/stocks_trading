@@ -447,9 +447,11 @@ def _run_news(args: argparse.Namespace) -> int:
     ticker_mapper = TickerMapper(
         news_tickers_repo=NewsTickersRepository(db_path=db_path),
         blacklist_repo=BlacklistRepository(db_path=db_path),
+        # 設定頁存的是百分比 (預設 60)，換算成 0~1 給 mapper
         confidence_threshold=Decimal(
-            str(config.get_plain("news.ticker_confidence", 0.6) or 0.6)
-        ),
+            str(config.get_plain("news.ticker_confidence_pct", 60.0) or 60.0)
+        )
+        / Decimal("100"),
     )
 
     result = run_news_pipeline(

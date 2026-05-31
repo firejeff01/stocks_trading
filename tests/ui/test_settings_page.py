@@ -61,6 +61,31 @@ class TestLoadExistingConfig:
         assert page.circuit_breaker_pct_value() == 4.0
 
 
+class TestNewsSettings:
+    def test_defaults(self, qtbot: QtBot, config: ConfigStore) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page.news_max_calls_value() == 40
+        assert page.news_ticker_confidence_value() == 60.0
+
+    def test_loaded(self, qtbot: QtBot, config: ConfigStore) -> None:
+        config.set_plain("news.daily_max_calls", 25)
+        config.set_plain("news.ticker_confidence_pct", 70.0)
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page.news_max_calls_value() == 25
+        assert page.news_ticker_confidence_value() == 70.0
+
+    def test_save_persists(self, qtbot: QtBot, config: ConfigStore) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        page.set_news_max_calls(15)
+        page.set_news_ticker_confidence(55.0)
+        page.save()
+        assert config.get_plain("news.daily_max_calls") == 15
+        assert config.get_plain("news.ticker_confidence_pct") == 55.0
+
+
 class TestSave:
     def test_save_persists_smtp(self, qtbot: QtBot, config: ConfigStore) -> None:
         page = SettingsPage(config=config)
