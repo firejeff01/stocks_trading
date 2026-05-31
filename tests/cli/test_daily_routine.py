@@ -22,6 +22,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from stocks_trading.cli.daily_routine import (
     DEFAULT_DAILY_TICKERS,
     DailyRoutineResult,
@@ -234,6 +236,67 @@ class TestResolveDailyTickers:
     def test_empty_config_falls_back_to_default(self) -> None:
         assert resolve_daily_tickers("") == DEFAULT_DAILY_TICKERS
         assert resolve_daily_tickers(None) == DEFAULT_DAILY_TICKERS
+
+
+class TestSnapshotWrittenBeforeSignals:
+    """快照 (skip-marker) 排在存訊號之前：存訊號當機也不會讓重跑重複產生訊號．"""
+
+    def _signal_count(self, db: Path) -> int:
+        import sqlite3
+
+        with sqlite3.connect(db) as c:
+            return int(c.execute("SELECT COUNT(*) FROM signals").fetchone()[0])
+
+    def test_crash_during_save_leaves_marker_so_rerun_skips(
+        self, tmp_path: Path
+    ) -> None:
+        db = _setup_db(tmp_path)
+        signal_repo, _, daily_pnl_repo, _, service = _build_service(db)
+        spy = Symbol("SPY", Market.US)
+        router = _FakeRouter({spy: _ramp_bars(date(2026, 1, 1), 30)})
+        today = date(2026, 1, 30)
+
+        def _boom_save(*_a: object, **_k: object) -> None:
+            raise RuntimeError("crash during signal save")
+
+        signal_repo.save = _boom_save  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError):
+            daily_routine(
+                tickers=["SPY"],
+                router=router,
+                signal_repo=signal_repo,
+                paper_trading_service=service,
+                strategy=DualMomentumStrategy(
+                    lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+                ),
+                account_id=SIM_US_ACCOUNT_ID,
+                notification_service=None,
+                mode=Mode.SIM,
+                summary_date=today,
+            )
+
+        # 快照在「存訊號之前」寫入 → save 炸了但 skip-marker 已存在、訊號 0 筆
+        assert daily_pnl_repo.find_for_date(SIM_US_ACCOUNT_ID, today) is not None
+        assert self._signal_count(db) == 0
+
+        # 還原 save → skip-if-done 重跑 → 因快照在 → 略過 → 不補存重複訊號
+        fresh = SignalRepository(db_path=db)
+        results = run_markets(
+            tickers=["SPY"],
+            router=router,
+            signal_repo=fresh,
+            paper_trading_service=service,
+            daily_pnl_repo=daily_pnl_repo,
+            make_strategy=lambda: DualMomentumStrategy(
+                lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+            ),
+            notification_service=None,
+            today=today,
+            skip_if_done=True,
+        )
+        assert results[0].skipped is True
+        assert self._signal_count(db) == 0  # 仍 0，無重複訊號
 
 
 class TestSummarizeRun:

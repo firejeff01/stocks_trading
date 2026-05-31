@@ -166,24 +166,29 @@ def daily_routine(
         as_of_date=summary_date,
     )
 
-    # 3. 跑策略產生新訊號
+    # 3. 跑策略產生新訊號 (先在記憶體算出，步驟 5 才寫入)
     new_signals = strategy.evaluate(
         bars_by_symbol=bars_by_symbol,
         as_of_date=summary_date,
         account_id=account_id,
     )
-    for sig in new_signals:
-        signal_repo.save(
-            sig, mode=mode, suggested_qty=0, reason="daily_routine"
-        )
 
-    # 4. snapshot equity (用 summary_date 當天 close)
+    # 4. 先寫 equity 快照 (skip-if-done 的標記)──刻意排在「存訊號之前」：
+    #    保證「訊號已寫入 ⇒ 快照已存在 ⇒ 重跑被 skip-if-done 略過」，杜絕當機
+    #    落在兩者之間導致重跑重複產生訊號．快照 equity 由結算後持倉計算、與新
+    #    PENDING 訊號無關，故先後不影響數值．
     closes = _closing_prices(bars_by_symbol, summary_date)
     snapshot = paper_trading_service.snapshot_equity(
         account_id=account_id,
         closing_prices=closes,
         snapshot_date=summary_date,
     )
+
+    # 5. 寫入新訊號 (此時快照已在，重複保護成立)
+    for sig in new_signals:
+        signal_repo.save(
+            sig, mode=mode, suggested_qty=0, reason="daily_routine"
+        )
 
     # 5. 寄日報 (可選)
     if notification_service is not None:
