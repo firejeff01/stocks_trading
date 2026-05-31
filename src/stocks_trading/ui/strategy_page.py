@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from stocks_trading.config.store import ConfigStore
+from stocks_trading.ui.widgets.no_wheel import (
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+)
 
 _PREFIX = "strategy.dual_momentum"
 
@@ -25,15 +27,15 @@ class StrategyPage(QWidget):
         self.setObjectName("surface")
         self._config = config
 
-        self._lookback = QSpinBox()
+        self._lookback = NoWheelSpinBox()
         self._lookback.setRange(5, 2000)
         self._lookback.setValue(252)
 
-        self._top_n = QSpinBox()
+        self._top_n = NoWheelSpinBox()
         self._top_n.setRange(1, 20)
         self._top_n.setValue(2)
 
-        self._abs_threshold = QDoubleSpinBox()
+        self._abs_threshold = NoWheelDoubleSpinBox()
         self._abs_threshold.setRange(-50.0, 50.0)
         self._abs_threshold.setSingleStep(0.5)
         self._abs_threshold.setValue(4.0)

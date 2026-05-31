@@ -16,13 +16,11 @@ from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -43,6 +41,10 @@ from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.storage.signal_repository import SignalRepository
 from stocks_trading.strategies.dual_momentum import DualMomentumStrategy
+from stocks_trading.ui.widgets.no_wheel import (
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+)
 
 # 簽名：(symbols, start, end) → {symbol: bars[]}
 DataFetcher = Callable[[list[Symbol], date, date], dict[Symbol, list[Bar]]]
@@ -63,15 +65,15 @@ class BacktestPage(QWidget):
         ) = None
         self._pending_run_args: tuple[date, date] | None = None
 
-        self._lookback = QSpinBox()
+        self._lookback = NoWheelSpinBox()
         self._lookback.setRange(1, 1000)
         self._lookback.setValue(252)
 
-        self._top_n = QSpinBox()
+        self._top_n = NoWheelSpinBox()
         self._top_n.setRange(1, 20)
         self._top_n.setValue(2)
 
-        self._initial_capital = QDoubleSpinBox()
+        self._initial_capital = NoWheelDoubleSpinBox()
         self._initial_capital.setRange(100.0, 10_000_000.0)
         self._initial_capital.setValue(10000.0)
         self._initial_capital.setDecimals(2)
