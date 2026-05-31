@@ -57,7 +57,7 @@
 - `pm/` — PM 階段需求文件 (v0.3 凍結)
 - `sa/` — SA 階段系統分析與架構設計
 - `src/stocks_trading/` — 主程式碼
-- `tests/` — pytest 測試套件 (635 tests 全綠)
+- `tests/` — pytest 測試套件 (773 tests 全綠)
 - `installer/` — cx_Freeze 打包腳本 + Task Scheduler 範本
 
 ## 開發原則
@@ -82,6 +82,7 @@ src/stocks_trading/
 ├── backtest/                       FillEngine + PortfolioState + BacktestEngine
 ├── paper_trading/                  PaperTradingService + 費用計算 + 帳本重置
 ├── risk/                           RiskGuard 風控閘門 (單筆 / 曝險 / 熔斷)
+├── news/                           v2.0 新聞情緒：claude -p 分析 / 蒐集 / 排名 / pipeline
 ├── notify/                         SMTP + Email builders + NotificationService
 ├── concurrency/                    AsyncFetcher (UI 非同步抓資料)
 ├── cli/                            stocks-trading-cli (daily-routine / backtest / signal-list)
@@ -104,8 +105,9 @@ src/stocks_trading/
 - [x] **M5.7 (v1.5)**：K 線圖表 + 技術指標 (MA/RSI/MACD/Bollinger) + 形態偵測
 - [x] **RiskGuard 風控**：單檔上限 (預設 20% 資金) / 總曝險 / 單日熔斷
 - [x] **→ v1.1.0 release** ←
+- [x] **M5.5 (v2.0)**：新聞情緒分析 (claude -p + 多因子排名 + watchlist 兩段核可)
+- [x] **→ v2.0 新聞模組 (已在 main，待 release tag)** ←
 - [ ] M5 (v1.5)：實盤模式、ShioajiBroker、Email Broker for US
-- [ ] M5.5 (v2.0)：新聞情緒分析
 
 ## License
 

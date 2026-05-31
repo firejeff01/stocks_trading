@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+### 新增 (Added) — v2.0 新聞情緒分析模組
+
+完整的新聞情緒 pipeline：用使用者的 Claude Max (`claude -p`) 分析新聞、多因子
+排序候選、進觀察清單、**兩段手動核可**後轉為手動訊號．
+
+**分析核心**
+- `LLMAnalyzer` ABC + `ClaudeCliAnalyzer`：走本機 `claude -p` (Claude Max 訂閱)
+  → 結構化 JSON (sentiment/impact/summary/catalysts/tickers)；注入式 CliRunner
+  可測、容錯重試、claude 不在 / 未登入分類處理．
+- `CostGuard`：每日用量上限 (以呼叫次數為主，因 claude -p 每篇約 $0.06~0.08)．
+
+**蒐集**
+- `NewsCollector` + `SourceAdapter`：多來源聚合、url_hash 去重、單一來源失敗隔離．
+- `RssAdapter` (RSS 2.0 / Atom，純標準庫)、`YFinanceNewsAdapter` (個股新聞)．
+
+**排序 / 觀察清單**
+- `TickerMapper`：信心門檻 + 黑名單過濾 (反 LLM 幻覺)．
+- `Ranker`：多因子排名 (影響 × 來源信用 × 時效衰減 × 多源加成)、強訊號 ≥3 來源．
+- watchlist / news_tickers / blacklist / source_credibility / audit_log repos．
+
+**核可 / 通知**
+- `WatchlistPromotionService`：兩段手動晉升 → MANUAL_PENDING signal (使用者填
+  進場/停損價，service 不發明價格)、寫 audit_log、防重複晉升．
+- `NewsDigestBuilder`：每日 Top 10 候選 HTML email (強訊號醒目色 + LLM 用量)．
+- `WatchlistPage` GUI (📰 新聞候選 分頁) + 兩段確認對話框．
+
+**整合**
+- `run_news_pipeline`：collect → analyze (CostGuard 守門) → map → rank →
+  watchlist → digest，錯誤隔離、dry-run．
+- CLI `stocks-trading-cli news`、`news_daily.xml` 排程範本、設定頁新聞參數群組．
+
+### 修正 (Fixed)
+- RSS 抓取帶 User-Agent，修 CNBC HTTP 403．
+
+### 統計
+- 773 tests 全綠、ruff / mypy strict 全綠．
+- DB schema (7 張 news 表) v1.0 即預建，v2.0 無新 migration．
+
 ## [1.1.0] — 2026-05-31 — K 線圖表 + Paper Trading + 風控
 
 繼 v1.0 之後累積的功能整合釋出：完整 paper trading 自動化、K 線技術分析、
