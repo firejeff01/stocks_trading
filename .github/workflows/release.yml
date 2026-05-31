@@ -1,0 +1,42 @@
+name: Release
+
+# 推 v* tag 時：在 Windows 上用 cx_Freeze 建 MSI，並建立 GitHub release 附上 MSI。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # 需要權限建立 release + 上傳 asset
+
+jobs:
+  build-msi:
+    name: Build MSI + 發佈 release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build MSI (cx_Freeze)
+        run: python installer/build_msi.py bdist_msi
+
+      - name: List built artifacts
+        shell: pwsh
+        run: Get-ChildItem installer/dist
+
+      - name: Publish GitHub release with MSI
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/dist/*.msi
+          generate_release_notes: true
+          fail_on_unmatched_files: true
