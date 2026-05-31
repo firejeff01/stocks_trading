@@ -86,6 +86,45 @@ class TestNewsSettings:
         assert config.get_plain("news.ticker_confidence_pct") == 55.0
 
 
+class TestSpinboxNoWheelSteal:
+    """滾輪滑過未聚焦的 spinbox 不該改值 (讓滾動交給整頁捲軸)．"""
+
+    def test_focus_policy_is_strong(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        from PySide6.QtCore import Qt
+
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page._news_max_calls.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert page._single_risk_pct.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert page._smtp_port.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+    def test_wheel_unfocused_does_not_change_value(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        page.set_news_max_calls(40)
+        sb = page._news_max_calls
+        assert not sb.hasFocus()
+        ev = QWheelEvent(
+            QPointF(5, 5),
+            QPointF(5, 5),
+            QPoint(0, 0),
+            QPoint(0, -120),  # 往下滾一格
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        sb.wheelEvent(ev)
+        assert page.news_max_calls_value() == 40  # 未聚焦 → 值不變
+
+
 class TestSave:
     def test_save_persists_smtp(self, qtbot: QtBot, config: ConfigStore) -> None:
         page = SettingsPage(config=config)

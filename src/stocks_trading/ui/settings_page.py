@@ -9,6 +9,8 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Protocol
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -33,6 +35,39 @@ from stocks_trading.storage.seed_accounts import (
     SIM_TW_ACCOUNT_ID,
     SIM_US_ACCOUNT_ID,
 )
+
+
+class _NoWheelSpinBox(QSpinBox):
+    """滾輪滑過 (未聚焦) 不改值，把滾動讓給外層 ScrollArea 捲動整頁．
+
+    Qt 預設 spinbox 會在滑鼠懸停時吃掉滾輪改數值，使用者想捲頁卻誤改設定 —
+    改成 StrongFocus + 未聚焦時忽略滾輪 (event.ignore 讓事件冒泡)．需點進欄位
+    (取得焦點) 後才能用滾輪微調．
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 (Qt naming)
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
+class _NoWheelDoubleSpinBox(QDoubleSpinBox):
+    """同 _NoWheelSpinBox，雙精度版．"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 (Qt naming)
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 class _NotificationServiceLike(Protocol):
@@ -89,26 +124,26 @@ class SettingsPage(QWidget):
         self._confirm_fn = confirm_fn or self._default_confirm
 
         self._smtp_host = QLineEdit()
-        self._smtp_port = QSpinBox()
+        self._smtp_port = _NoWheelSpinBox()
         self._smtp_port.setRange(1, 65535)
         self._smtp_user = QLineEdit()
         self._smtp_recipient = QLineEdit()
         self._smtp_password = QLineEdit()
         self._smtp_password.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self._single_risk_pct = QDoubleSpinBox()
+        self._single_risk_pct = _NoWheelDoubleSpinBox()
         self._single_risk_pct.setRange(0.0, 100.0)
         self._single_risk_pct.setSingleStep(0.1)
-        self._total_exposure_pct = QDoubleSpinBox()
+        self._total_exposure_pct = _NoWheelDoubleSpinBox()
         self._total_exposure_pct.setRange(0.0, 100.0)
-        self._circuit_breaker_pct = QDoubleSpinBox()
+        self._circuit_breaker_pct = _NoWheelDoubleSpinBox()
         self._circuit_breaker_pct.setRange(0.0, 100.0)
         self._circuit_breaker_pct.setSingleStep(0.5)
 
         # 新聞情緒分析 (v2.0)
-        self._news_max_calls = QSpinBox()
+        self._news_max_calls = _NoWheelSpinBox()
         self._news_max_calls.setRange(1, 10_000)
-        self._news_ticker_conf = QDoubleSpinBox()
+        self._news_ticker_conf = _NoWheelDoubleSpinBox()
         self._news_ticker_conf.setRange(0.0, 100.0)
         self._news_ticker_conf.setSingleStep(5.0)
 
@@ -119,11 +154,11 @@ class SettingsPage(QWidget):
         self._shioaji_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
 
         # SIM 帳本起始資金
-        self._sim_tw_init = QDoubleSpinBox()
+        self._sim_tw_init = _NoWheelDoubleSpinBox()
         self._sim_tw_init.setRange(1000.0, 100_000_000.0)
         self._sim_tw_init.setDecimals(0)
         self._sim_tw_init.setSingleStep(10_000)
-        self._sim_us_init = QDoubleSpinBox()
+        self._sim_us_init = _NoWheelDoubleSpinBox()
         self._sim_us_init.setRange(100.0, 10_000_000.0)
         self._sim_us_init.setDecimals(0)
         self._sim_us_init.setSingleStep(100)
