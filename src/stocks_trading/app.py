@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -122,12 +123,25 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
         account_repo=account_repo,
     )
 
+    def _price_history(symbol: Symbol) -> list[float]:
+        """抓近 ~30 日收盤給持倉 sparkline；失敗回空 (不影響其他持倉)．"""
+        from datetime import timedelta
+
+        try:
+            bars = router.fetch_bars(
+                symbol, date.today() - timedelta(days=60), date.today()
+            )
+        except Exception:
+            return []
+        return [float(b.close) for b in bars][-30:]
+
     def refresh() -> None:
         _refresh_dashboard(
             dashboard,
             account_repo,
             positions_repo=positions_repo,
             daily_pnl_repo=daily_pnl_repo,
+            price_history_fn=_price_history,
         )
 
     dashboard = DashboardPage(on_refresh=refresh)
@@ -214,6 +228,7 @@ def _refresh_dashboard(
     account_repo: AccountRepository,
     positions_repo: PositionsRepository | None = None,
     daily_pnl_repo: DailyPnlRepository | None = None,
+    price_history_fn: Callable[[Symbol], list[float]] | None = None,
 ) -> None:
     """從 repos 拉所有 SIM 帳本資料更新 Dashboard.
 
@@ -275,6 +290,11 @@ def _refresh_dashboard(
                         qty=pos.qty,
                         avg_price=Money(pos.avg_price, currency),
                         current_price=Money(pos.avg_price, currency),
+                        prices=(
+                            tuple(price_history_fn(pos.symbol))
+                            if price_history_fn is not None
+                            else ()
+                        ),
                     )
                 )
         dashboard.update_holdings(rows)

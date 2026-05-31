@@ -84,6 +84,48 @@ class TestHoldings:
         assert row.unrealized_pnl == Money("26.75", Currency.USD)
 
 
+class TestHoldingsSparkline:
+    """持倉表「走勢」欄 — 有 prices 時放 Sparkline，否則留白．"""
+
+    def test_row_with_prices_has_sparkline_widget(self, qtbot: QtBot) -> None:
+        from stocks_trading.ui.widgets.sparkline import Sparkline
+
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        row = HoldingRow(
+            symbol="SPY",
+            market="US",
+            qty=5,
+            avg_price=Money("487.20", Currency.USD),
+            current_price=Money("492.55", Currency.USD),
+            prices=(485.0, 488.0, 492.55),
+        )
+        page.update_holdings([row])
+        table = page._holdings_table
+        spark_col = table.columnCount() - 1
+        widget = table.cellWidget(0, spark_col)
+        assert isinstance(widget, Sparkline)
+        assert widget.prices_count() == 3
+
+    def test_row_without_prices_has_no_widget(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        # _spy_row() prices 預設為空 tuple
+        page.update_holdings([_spy_row()])
+        table = page._holdings_table
+        spark_col = table.columnCount() - 1
+        assert table.cellWidget(0, spark_col) is None
+
+    def test_trend_column_header_present(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        table = page._holdings_table
+        last = table.columnCount() - 1
+        header = table.horizontalHeaderItem(last)
+        assert header is not None
+        assert header.text() == "走勢"
+
+
 class TestSignals:
     def test_update_signals_displays_rows(self, qtbot: QtBot) -> None:
         page = DashboardPage()

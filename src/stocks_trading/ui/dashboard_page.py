@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from stocks_trading.domain.money import Money
 from stocks_trading.domain.signal import Signal
+from stocks_trading.ui.widgets.sparkline import Sparkline
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,7 @@ class HoldingRow:
     qty: int
     avg_price: Money
     current_price: Money
+    prices: tuple[float, ...] = ()
 
     @property
     def unrealized_pnl(self) -> Money:
@@ -133,9 +135,9 @@ class DashboardPage(QWidget):
         self._kpi_positions = _KpiCard("持倉數")
         self._kpi_win_rate = _KpiCard("勝率")
 
-        self._holdings_table = QTableWidget(0, 6)
+        self._holdings_table = QTableWidget(0, 7)
         self._holdings_table.setHorizontalHeaderLabels(
-            ["標的", "市場", "數量", "均價", "現價", "未實現損益"]
+            ["標的", "市場", "數量", "均價", "現價", "未實現損益", "走勢"]
         )
         self._holdings_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -209,6 +211,13 @@ class DashboardPage(QWidget):
                     self._fmt_money(row.unrealized_pnl, signed=True)
                 ),
             )
+            # 走勢欄：有價格序列時放 Sparkline，否則留白
+            if row.prices:
+                self._holdings_table.setCellWidget(
+                    i, 6, Sparkline(list(row.prices))
+                )
+            else:
+                self._holdings_table.removeCellWidget(i, 6)
 
     def update_signals(self, signals: list[Signal]) -> None:
         self._signals_table.setRowCount(len(signals))
