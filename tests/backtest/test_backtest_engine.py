@@ -13,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from stocks_trading.backtest.backtest_engine import BacktestEngine, BacktestResult
+from stocks_trading.backtest.backtest_engine import (
+    BacktestEngine,
+    BacktestResult,
+    TradeMarker,
+)
 from stocks_trading.backtest.fill_engine import FillSettings
 from stocks_trading.backtest.portfolio_state import PortfolioState
 from stocks_trading.brokers.simulated_broker import SimulatedBroker
@@ -22,6 +26,7 @@ from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.market import Market
 from stocks_trading.domain.mode import Mode
 from stocks_trading.domain.money import Money
+from stocks_trading.domain.side import Side
 from stocks_trading.domain.symbol import Symbol
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.migration import MigrationRunner
@@ -156,6 +161,29 @@ class TestMetrics:
         assert len(result.equity_curve) == 15
         assert result.equity_curve[0].date == date(2026, 1, 1)
         assert result.equity_curve[-1].date == date(2026, 1, 15)
+
+
+class TestTradeMarkers:
+    def test_buy_fill_recorded_as_trade_marker(self, db_path: Path) -> None:
+        # SPY 穩定上升 → 策略買入並成交 (T+1 開盤)
+        spy = Symbol("SPY", Market.US)
+        bars = _ramp_bars(date(2026, 1, 1), [str(100 + i) for i in range(51)])
+        engine, _ = _make_engine(db_path)
+
+        result = engine.run(
+            bars_by_symbol={spy: bars},
+            start=date(2026, 1, 1),
+            end=date(2026, 2, 20),
+        )
+
+        assert result.trades, "至少要有一筆成交標記"
+        buys = [t for t in result.trades if t.side is Side.BUY]
+        assert buys, "應記錄到 BUY 成交"
+        first = buys[0]
+        assert isinstance(first, TradeMarker)
+        assert first.ticker == "SPY"
+        assert first.price > Decimal("0")
+        assert date(2026, 1, 1) <= first.date <= date(2026, 2, 20)
 
 
 class TestResultDataclass:

@@ -17,6 +17,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from stocks_trading.backtest.portfolio_state import PortfolioState
+from stocks_trading.brokers.base import OrderResultStatus
 from stocks_trading.brokers.simulated_broker import SimulatedBroker
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.money import Money
@@ -33,6 +34,16 @@ class EquityPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class TradeMarker:
+    """已成交的進出場標記 (observe-only，供 UI 標示買賣點)．"""
+
+    date: date
+    ticker: str
+    side: Side
+    price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class BacktestResult:
     initial_capital: Money
     final_equity: Money
@@ -42,6 +53,7 @@ class BacktestResult:
     win_rate: Decimal
     total_trades: int
     equity_curve: list[EquityPoint]
+    trades: list[TradeMarker]
 
 
 class BacktestEngine:
@@ -60,6 +72,8 @@ class BacktestEngine:
         self._account_id = account_id
         self._rebalance_interval = rebalance_interval_bars
         self._initial_cash = portfolio.cash
+        self._placed: dict[UUID, Signal] = {}
+        self._trades: list[TradeMarker] = []
 
     def run(
         self,
@@ -71,6 +85,10 @@ class BacktestEngine:
         timeline = self._build_timeline(bars_by_symbol, start, end)
         bar_index = self._build_bar_index(bars_by_symbol)
 
+        # 追蹤已下單訊號 (signal_id → Signal) 與已成交標記 (每次 run 重置)
+        self._placed = {}
+        self._trades = []
+
         equity_curve: list[EquityPoint] = []
         last_rebalance_at: int | None = None
 
@@ -78,7 +96,22 @@ class BacktestEngine:
             # 1. 開盤 reconcile (i > 0 才有東西可 reconcile)
             if i > 0:
                 opens_today = self._opens_on_date(bar_index, d)
-                self._broker.reconcile_at_open(opens_today)
+                results = self._broker.reconcile_at_open(opens_today)
+                for r in results:
+                    if (
+                        r.status is OrderResultStatus.FILLED
+                        and r.filled_price is not None
+                    ):
+                        sig = self._placed.get(r.signal_id)
+                        if sig is not None:
+                            self._trades.append(
+                                TradeMarker(
+                                    date=d,
+                                    ticker=sig.symbol.code,
+                                    side=sig.side,
+                                    price=r.filled_price.amount,
+                                )
+                            )
 
             # 2. 收盤 mark-to-market
             closes_today = self._closes_on_date(bar_index, d)
@@ -161,6 +194,7 @@ class BacktestEngine:
             )
             sell_signal.suggested_qty = pos.qty
             self._broker.place_order(sell_signal)
+            self._placed[sell_signal.signal_id] = sell_signal
 
         # 跑策略產出新 BUY 訊號
         signals = self._strategy.evaluate(
@@ -188,6 +222,7 @@ class BacktestEngine:
                 continue
             sig.suggested_qty = qty
             self._broker.place_order(sig)
+            self._placed[sig.signal_id] = sig
 
     def _build_result(self, equity_curve: list[EquityPoint]) -> BacktestResult:
         if not equity_curve:
@@ -200,6 +235,7 @@ class BacktestEngine:
                 win_rate=Decimal("0"),
                 total_trades=0,
                 equity_curve=[],
+                trades=[],
             )
 
         final = equity_curve[-1].equity
@@ -235,4 +271,5 @@ class BacktestEngine:
             win_rate=self._portfolio.win_rate,
             total_trades=self._portfolio.closed_trade_count,
             equity_curve=equity_curve,
+            trades=list(self._trades),
         )

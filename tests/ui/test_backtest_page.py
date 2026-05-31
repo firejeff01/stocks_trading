@@ -218,6 +218,26 @@ class TestRunWithBars:
         assert page.result_final_equity_text() != ""
 
 
+class TestEquityChart:
+    def test_chart_has_points_after_run(self, qtbot: QtBot) -> None:
+        page = BacktestPage()
+        qtbot.addWidget(page)
+        page.set_lookback_days(3)
+        page.set_top_n(1)
+        page.set_initial_capital(10000)
+
+        spy = Symbol("SPY", Market.US)
+        bars = _ramp(date(2026, 1, 1), [str(100 + i) for i in range(30)])
+        page.run_with_bars(
+            bars_by_symbol={spy: bars},
+            start=date(2026, 1, 1),
+            end=date(2026, 1, 30),
+        )
+
+        # equity 曲線應填入了資料 (30 個交易日)
+        assert page.equity_point_count() > 0
+
+
 class TestCurrencySelector:
     """Phase A 雙幣別：使用者選 TWD 或 USD，PortfolioState 用所選幣別建．"""
 

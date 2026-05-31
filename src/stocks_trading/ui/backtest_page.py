@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
+import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -50,6 +51,94 @@ from stocks_trading.ui.widgets.no_wheel import (
 DataFetcher = Callable[[list[Symbol], date, date], dict[Symbol, list[Bar]]]
 
 _DEFAULT_TICKERS = "SPY, QQQ, IWM"
+
+
+def _date_to_ts(d: date) -> float:
+    return datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp()
+
+
+class _EquityChartWidget(QWidget):
+    """回測結果圖：equity 曲線 + 進出場買賣點 (pyqtgraph)．"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self._plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
+        self._plot.setBackground(None)
+        self._plot.showGrid(x=True, y=True, alpha=0.25)
+        self._plot.setMinimumHeight(220)
+        layout.addWidget(self._plot)
+        self._curve = self._plot.plot([], [], pen=pg.mkPen("#2563eb", width=2))
+        # BUY 綠色上三角，SELL 紅色下三角
+        self._buy_scatter = pg.ScatterPlotItem(
+            symbol="t1", size=12, brush=pg.mkBrush("#16a34a"), pen=None
+        )
+        self._sell_scatter = pg.ScatterPlotItem(
+            symbol="t", size=12, brush=pg.mkBrush("#dc2626"), pen=None
+        )
+        self._plot.addItem(self._buy_scatter)
+        self._plot.addItem(self._sell_scatter)
+        self._point_count = 0
+
+    def set_data(
+        self,
+        equity_curve: list[tuple[date, float]],
+        trades: list[tuple[date, str, float]],
+    ) -> None:
+        """填入 equity 曲線與買賣點．
+
+        equity_curve: [(date, equity_value), ...]
+        trades: [(date, side, price), ...]，side 為 "BUY" / "SELL"．
+        買賣點的 y 值用該日 equity (nearest/equal date) 對齊曲線．
+        """
+        if not equity_curve:
+            self._curve.setData([], [])
+            self._buy_scatter.setData([], [])
+            self._sell_scatter.setData([], [])
+            self._point_count = 0
+            return
+
+        xs = [_date_to_ts(d) for d, _v in equity_curve]
+        ys = [v for _d, v in equity_curve]
+        self._curve.setData(xs, ys)
+        self._point_count = len(equity_curve)
+
+        equity_by_date = {d: v for d, v in equity_curve}
+        buy_x: list[float] = []
+        buy_y: list[float] = []
+        sell_x: list[float] = []
+        sell_y: list[float] = []
+        for d, side, _price in trades:
+            y = self._equity_at(equity_by_date, equity_curve, d)
+            if y is None:
+                continue
+            if side == "BUY":
+                buy_x.append(_date_to_ts(d))
+                buy_y.append(y)
+            else:
+                sell_x.append(_date_to_ts(d))
+                sell_y.append(y)
+        self._buy_scatter.setData(buy_x, buy_y)
+        self._sell_scatter.setData(sell_x, sell_y)
+
+    @staticmethod
+    def _equity_at(
+        equity_by_date: dict[date, float],
+        equity_curve: list[tuple[date, float]],
+        d: date,
+    ) -> float | None:
+        """取得指定日的 equity；無精確命中時取最近日期．"""
+        if d in equity_by_date:
+            return equity_by_date[d]
+        if not equity_curve:
+            return None
+        nearest = min(equity_curve, key=lambda p: abs((p[0] - d).days))
+        return nearest[1]
+
+    def point_count(self) -> int:
+        return self._point_count
 
 
 class BacktestPage(QWidget):
@@ -101,6 +190,8 @@ class BacktestPage(QWidget):
         self._final_equity_label = QLabel("")
         self._status_label = QLabel("")
         self._status_label.setObjectName("muted")
+
+        self._chart = _EquityChartWidget()
 
         self._build_ui()
 
@@ -307,6 +398,25 @@ class BacktestPage(QWidget):
         )
         self._final_equity_label.setText(f"最終資產 {final}")
 
+        self._update_chart(result)
+
+    def _update_chart(self, result: object) -> None:
+        # duck-typed：equity_curve = list[EquityPoint(date, equity: Money)]，
+        # trades = list[TradeMarker(date, ticker, side, price: Decimal)]
+        equity_curve = getattr(result, "equity_curve", [])
+        trades = getattr(result, "trades", [])
+        curve_points: list[tuple[date, float]] = [
+            (p.date, float(p.equity.amount)) for p in equity_curve
+        ]
+        trade_points: list[tuple[date, str, float]] = [
+            (t.date, str(t.side.value), float(t.price)) for t in trades
+        ]
+        self._chart.set_data(curve_points, trade_points)
+
+    def equity_point_count(self) -> int:
+        """圖上 equity 曲線的資料點數 (供測試斷言)．"""
+        return self._chart.point_count()
+
     # ---- UI ----
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -347,7 +457,7 @@ class BacktestPage(QWidget):
         results_layout = QVBoxLayout(results_box)
         results_layout.addWidget(self._final_equity_label)
         results_layout.addWidget(self._summary_label)
-        results_layout.addStretch(1)
+        results_layout.addWidget(self._chart, 1)
         body.addWidget(results_box)
 
         body.setStretchFactor(0, 0)
