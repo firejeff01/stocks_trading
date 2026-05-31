@@ -2,7 +2,7 @@
 
 個人自動化股票交易系統 — 台股自動下單 (永豐 Shioaji)、美股訊號通知 (半自動)。
 
-**目前最新版本：v1.1.0 (K 線圖表 + Paper Trading + 風控)** — 詳見 [CHANGELOG.md](CHANGELOG.md)。
+**目前最新版本：v2.0.0 (新聞情緒分析)** — 詳見 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 安裝 (一般使用者)
 
@@ -106,7 +106,7 @@ src/stocks_trading/
 - [x] **RiskGuard 風控**：單檔上限 (預設 20% 資金) / 總曝險 / 單日熔斷
 - [x] **→ v1.1.0 release** ←
 - [x] **M5.5 (v2.0)**：新聞情緒分析 (claude -p + 多因子排名 + watchlist 兩段核可)
-- [x] **→ v2.0 新聞模組 (已在 main，待 release tag)** ←
+- [x] **→ v2.0.0 release** ←
 - [ ] M5 (v1.5)：實盤模式、ShioajiBroker、Email Broker for US
 
 ## License

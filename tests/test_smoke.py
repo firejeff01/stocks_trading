@@ -4,4 +4,4 @@ import stocks_trading
 
 
 def test_package_version_exposed() -> None:
-    assert stocks_trading.__version__ == "1.1.0"
+    assert stocks_trading.__version__ == "2.0.0"
