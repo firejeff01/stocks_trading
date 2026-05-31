@@ -31,6 +31,7 @@ class PageId(StrEnum):
     STRATEGY = "strategy"
     BACKTEST = "backtest"
     SIGNAL_LOG = "signal_log"
+    WATCHLIST = "watchlist"
     SETTINGS = "settings"
 
 
@@ -40,6 +41,7 @@ _NAV_LABELS: dict[PageId, str] = {
     PageId.STRATEGY: "⚡ 策略",
     PageId.BACKTEST: "📊 回測",
     PageId.SIGNAL_LOG: "📋 訊號日誌",
+    PageId.WATCHLIST: "📰 新聞候選",
     PageId.SETTINGS: "⚙ 設定",
 }
 

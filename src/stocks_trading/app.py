@@ -14,6 +14,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -42,6 +43,13 @@ from stocks_trading.ui.settings_page import SettingsPage
 from stocks_trading.ui.signal_log_page import SignalLogPage
 from stocks_trading.ui.strategy_page import StrategyPage
 from stocks_trading.ui.theme import ThemeManager
+from stocks_trading.ui.watchlist_page import WatchlistPage
+
+if TYPE_CHECKING:
+    from stocks_trading.news.promotion_service import (
+        WatchlistPromotionService,
+    )
+    from stocks_trading.storage.watchlist_repository import WatchlistItem
 
 
 def _default_appdata_dir() -> Path:
@@ -124,6 +132,45 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
     dashboard = DashboardPage(on_refresh=refresh)
     refresh()
 
+    # 4b. 新聞候選 watchlist 接線 (晉升對話框 + 黑名單回報)
+    from stocks_trading.news.promotion_service import (
+        WatchlistPromotionService,
+    )
+    from stocks_trading.storage.audit_log_repository import AuditLogRepository
+    from stocks_trading.storage.blacklist_repository import (
+        BlacklistRepository,
+        BlacklistType,
+    )
+    from stocks_trading.storage.seed_accounts import SIM_US_ACCOUNT_ID
+    from stocks_trading.storage.watchlist_repository import (
+        WatchlistRepository,
+        WatchlistStatus,
+    )
+
+    watchlist_repo = WatchlistRepository(db_path=db_path)
+    blacklist_repo = BlacklistRepository(db_path=db_path)
+    promotion_service = WatchlistPromotionService(
+        watchlist_repo=watchlist_repo,
+        signal_repo=SignalRepository(db_path=db_path),
+        audit_repo=AuditLogRepository(db_path=db_path),
+    )
+
+    def _load_watchlist() -> list[WatchlistItem]:
+        # v2.0 美股為主：顯示 SIM-US 待核可候選
+        return watchlist_repo.find_by_account_and_status(
+            SIM_US_ACCOUNT_ID, WatchlistStatus.PENDING
+        )
+
+    def _blacklist_ticker(ticker: str) -> None:
+        blacklist_repo.add(
+            type=BlacklistType.TICKER,
+            value=ticker.upper(),
+            reason="使用者於候選清單回報",
+        )
+
+    def _promote(item: WatchlistItem) -> None:
+        _promote_watchlist_item(promotion_service, item)
+
     # 5. 建構各頁面 (BacktestPage 接 fetcher 後 ▶ 按鈕啟用)
     pages: dict[PageId, QWidget] = {
         PageId.DASHBOARD: dashboard,
@@ -139,6 +186,11 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
             signal_loader=lambda: SignalRepository(
                 db_path=db_path
             ).find_recent(limit=100),
+        ),
+        PageId.WATCHLIST: WatchlistPage(
+            watchlist_loader=_load_watchlist,
+            promote_fn=_promote,
+            blacklist_fn=_blacklist_ticker,
         ),
         PageId.SETTINGS: SettingsPage(
             config=config,
@@ -220,6 +272,56 @@ def _refresh_dashboard(
                     )
                 )
         dashboard.update_holdings(rows)
+
+
+def _promote_watchlist_item(
+    service: WatchlistPromotionService, item: WatchlistItem
+) -> None:
+    """兩段手動晉升對話框：確認 → 輸入進場價 → 輸入停損價 → promote．
+
+    任一步取消即中止 (不可被略過)；價格由使用者親自填入 (service 不發明價格)．
+    本函式為純 UI 互動 (modal dialog)，不進單元測試．
+    """
+    from datetime import UTC, datetime, timedelta
+    from decimal import Decimal
+
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    from stocks_trading.news.promotion_service import WatchlistPromotionError
+
+    if item.id is None:
+        return
+    confirm = QMessageBox.question(
+        None,
+        "晉升為訊號",
+        f"確定把 {item.ticker} ({item.side.value}) 晉升為手動訊號？\n"
+        "接著請輸入你打算的進場價與停損價。",
+    )
+    if confirm != QMessageBox.StandardButton.Yes:
+        return
+    currency = item.market.currency
+    target, ok = QInputDialog.getDouble(
+        None, "進場價", f"{item.ticker} 進場價 ({currency.value})",
+        0.0, 0.0, 1e12, 2,
+    )
+    if not ok or target <= 0:
+        return
+    stop, ok = QInputDialog.getDouble(
+        None, "停損價", f"{item.ticker} 停損價 ({currency.value})",
+        0.0, 0.0, 1e12, 2,
+    )
+    if not ok or stop <= 0:
+        return
+    try:
+        service.promote(
+            watchlist_id=item.id,
+            target_price=Money(Decimal(str(target)), currency),
+            stop_loss=Money(Decimal(str(stop)), currency),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            mode=Mode.SIM,
+        )
+    except (WatchlistPromotionError, ValueError) as exc:
+        QMessageBox.warning(None, "晉升失敗", str(exc))
 
 
 def main() -> int:
