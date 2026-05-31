@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -27,12 +28,62 @@ from stocks_trading.domain.market import Market
 from stocks_trading.domain.mode import Mode
 from stocks_trading.domain.money import Money
 from stocks_trading.domain.signal import Signal
-from stocks_trading.domain.symbol import Symbol
+from stocks_trading.domain.symbol import InvalidSymbolError, Symbol
 from stocks_trading.notify.daily_summary import HoldingSummary
 from stocks_trading.paper_trading.service import PaperTradingService
-from stocks_trading.storage.daily_pnl_repository import DailyPnlSnapshot
+from stocks_trading.storage.daily_pnl_repository import (
+    DailyPnlRepository,
+    DailyPnlSnapshot,
+)
+from stocks_trading.storage.seed_accounts import (
+    SIM_TW_ACCOUNT_ID,
+    SIM_US_ACCOUNT_ID,
+)
 from stocks_trading.storage.signal_repository import SignalRepository
 from stocks_trading.strategies.base import BaseStrategy
+
+# daily-routine 預設標的 (使用者鎖定美股科技股)；config "daily.tickers" 可覆寫
+DEFAULT_DAILY_TICKERS = [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "TSLA",
+]
+
+
+def parse_tickers(raw: str | None) -> list[str]:
+    """逗號分隔字串 → 去空白、大寫、去空項；丟掉無法構成合法 Symbol 的 token．
+
+    使用者在設定頁可能打錯 (空白、亂碼)，這裡先濾掉，避免一個壞 token 讓整個
+    daily-routine 在建 Symbol 時 raise 而中斷 (連帶合法標的也沒跑)．
+    """
+    out: list[str] = []
+    for token in (raw or "").split(","):
+        code = token.strip().upper()
+        if not code:
+            continue
+        try:
+            _symbol_for_ticker(code)
+        except InvalidSymbolError:
+            continue
+        out.append(code)
+    return out
+
+
+def resolve_daily_tickers(
+    config_value: str | None, override: list[str] | None = None
+) -> list[str]:
+    """決定 daily-routine 要跑哪些標的：override > config > 預設．
+
+    CLI/GUI/排程共用同一來源 (config "daily.tickers")，避免各處不一致．
+    """
+    if override:
+        return override
+    parsed = parse_tickers(config_value)
+    return parsed or DEFAULT_DAILY_TICKERS
 
 
 @runtime_checkable
@@ -182,3 +233,84 @@ def daily_routine(
         settled_signals=len(fill_results),
         equity_snapshot=snapshot,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class MarketRunResult:
+    """單一市場 (TW / US) 的當日執行結果，skipped=True 表示今天已跑過被略過．"""
+
+    market: str
+    account_id: UUID
+    skipped: bool
+    new_signals: int
+    settled_signals: int
+    equity: Money | None
+
+
+def run_markets(
+    *,
+    tickers: list[str],
+    router: _RouterLike,
+    signal_repo: SignalRepository,
+    paper_trading_service: PaperTradingService,
+    daily_pnl_repo: DailyPnlRepository,
+    make_strategy: Callable[[], BaseStrategy],
+    notification_service: _NotifyLike | None,
+    today: date,
+    skip_if_done: bool,
+) -> list[MarketRunResult]:
+    """把 tickers 依市場分流 (4 碼純數字→TW，其餘→US) 各跑一次 daily_routine．
+
+    skip_if_done=True 時，若該帳本今天已有 daily_pnl 快照就略過 (不重跑、避免
+    產生重複訊號)；這是登入補跑與 GUI「立即重跑」按鈕的共用核心．
+    """
+    tw = [t for t in tickers if t.isdigit() and len(t) == 4]
+    us = [t for t in tickers if not (t.isdigit() and len(t) == 4)]
+
+    results: list[MarketRunResult] = []
+    for market_label, t_list, acct in (
+        ("TW", tw, SIM_TW_ACCOUNT_ID),
+        ("US", us, SIM_US_ACCOUNT_ID),
+    ):
+        if not t_list:
+            continue
+        if skip_if_done and daily_pnl_repo.find_for_date(acct, today) is not None:
+            results.append(
+                MarketRunResult(market_label, acct, True, 0, 0, None)
+            )
+            continue
+        result = daily_routine(
+            tickers=t_list,
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=paper_trading_service,
+            strategy=make_strategy(),
+            account_id=acct,
+            notification_service=notification_service,
+            mode=Mode.SIM,
+            summary_date=today,
+        )
+        results.append(
+            MarketRunResult(
+                market_label,
+                acct,
+                False,
+                result.new_signals,
+                result.settled_signals,
+                result.equity_snapshot.equity,
+            )
+        )
+    return results
+
+
+def summarize_run(results: list[MarketRunResult]) -> str:
+    """把 run_markets 結果整理成一行人類可讀字串 (給 toast / CLI 印)．"""
+    if not results:
+        return "沒有可跑的標的"
+    parts: list[str] = []
+    for r in results:
+        if r.skipped:
+            parts.append(f"{r.market} 今天已跑過")
+        else:
+            parts.append(f"{r.market} 新增 {r.new_signals} 訊號")
+    return "；".join(parts)

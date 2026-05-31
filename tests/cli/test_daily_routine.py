@@ -22,7 +22,16 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from stocks_trading.cli.daily_routine import DailyRoutineResult, daily_routine
+from stocks_trading.cli.daily_routine import (
+    DEFAULT_DAILY_TICKERS,
+    DailyRoutineResult,
+    MarketRunResult,
+    daily_routine,
+    parse_tickers,
+    resolve_daily_tickers,
+    run_markets,
+    summarize_run,
+)
 from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.market import Market
@@ -35,7 +44,10 @@ from stocks_trading.paper_trading.fee_calculator import FeeConfig
 from stocks_trading.paper_trading.service import PaperTradingService
 from stocks_trading.storage import MIGRATIONS_DIR
 from stocks_trading.storage.account_repository import AccountRepository
-from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
+from stocks_trading.storage.daily_pnl_repository import (
+    DailyPnlRepository,
+    DailyPnlSnapshot,
+)
 from stocks_trading.storage.migration import MigrationRunner
 from stocks_trading.storage.positions_repository import PositionsRepository
 from stocks_trading.storage.seed_accounts import SIM_US_ACCOUNT_ID
@@ -105,6 +117,135 @@ def _build_service(
         max_positions=4,
     )
     return signal_repo, positions_repo, daily_pnl_repo, account_repo, service
+
+
+def _us_snapshot(today: date) -> DailyPnlSnapshot:
+    return DailyPnlSnapshot(
+        account_id=SIM_US_ACCOUNT_ID,
+        snapshot_date=today,
+        equity=Money(Decimal("3000"), Currency.USD),
+        cash=Money(Decimal("3000"), Currency.USD),
+        realized_pnl=Money(Decimal("0"), Currency.USD),
+        unrealized_pnl=Money(Decimal("0"), Currency.USD),
+        drawdown_pct=None,
+        snapshotted_at=datetime(today.year, today.month, today.day, 18, 0, tzinfo=UTC),
+    )
+
+
+class TestRunMarkets:
+    """run_markets — TW/US 分流 + skip-if-done (登入補跑 + GUI 按鈕共用核心)．"""
+
+    def test_runs_us_and_writes_snapshot(self, tmp_path: Path) -> None:
+        db = _setup_db(tmp_path)
+        signal_repo, _, daily_pnl_repo, _, service = _build_service(db)
+        spy = Symbol("SPY", Market.US)
+        router = _FakeRouter({spy: _ramp_bars(date(2026, 1, 1), 30)})
+        today = date(2026, 1, 30)
+
+        results = run_markets(
+            tickers=["SPY"],
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=service,
+            daily_pnl_repo=daily_pnl_repo,
+            make_strategy=lambda: DualMomentumStrategy(
+                lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+            ),
+            notification_service=None,
+            today=today,
+            skip_if_done=False,
+        )
+        assert len(results) == 1
+        assert results[0].market == "US"
+        assert results[0].skipped is False
+        assert daily_pnl_repo.find_for_date(SIM_US_ACCOUNT_ID, today) is not None
+
+    def test_skips_when_already_done_and_never_builds_strategy(
+        self, tmp_path: Path
+    ) -> None:
+        db = _setup_db(tmp_path)
+        signal_repo, _, daily_pnl_repo, _, service = _build_service(db)
+        today = date(2026, 1, 30)
+        daily_pnl_repo.upsert(_us_snapshot(today))  # 今天已有快照
+
+        def _boom() -> DualMomentumStrategy:
+            raise AssertionError("略過時不該建構 strategy / 跑 routine")
+
+        results = run_markets(
+            tickers=["SPY"],
+            router=_FakeRouter({}),
+            signal_repo=signal_repo,
+            paper_trading_service=service,
+            daily_pnl_repo=daily_pnl_repo,
+            make_strategy=_boom,
+            notification_service=None,
+            today=today,
+            skip_if_done=True,
+        )
+        assert len(results) == 1
+        assert results[0].skipped is True
+
+    def test_skip_if_done_false_runs_even_if_snapshot_exists(
+        self, tmp_path: Path
+    ) -> None:
+        db = _setup_db(tmp_path)
+        signal_repo, _, daily_pnl_repo, _, service = _build_service(db)
+        today = date(2026, 1, 30)
+        daily_pnl_repo.upsert(_us_snapshot(today))
+        spy = Symbol("SPY", Market.US)
+        router = _FakeRouter({spy: _ramp_bars(date(2026, 1, 1), 30)})
+
+        results = run_markets(
+            tickers=["SPY"],
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=service,
+            daily_pnl_repo=daily_pnl_repo,
+            make_strategy=lambda: DualMomentumStrategy(
+                lookback_days=3, top_n=1, abs_momentum_threshold=Decimal("0")
+            ),
+            notification_service=None,
+            today=today,
+            skip_if_done=False,
+        )
+        assert results[0].skipped is False
+
+
+class TestParseTickers:
+    def test_drops_invalid_tokens(self) -> None:
+        # "@@@" / "AA PL" 無法構成合法 Symbol → 丟掉，合法的留著
+        assert parse_tickers("AAPL, @@@ , 0050, AA PL, ") == ["AAPL", "0050"]
+
+    def test_all_invalid_returns_empty(self) -> None:
+        assert parse_tickers("@@@,###") == []
+
+    def test_none_and_empty(self) -> None:
+        assert parse_tickers(None) == []
+        assert parse_tickers("") == []
+
+
+class TestResolveDailyTickers:
+    def test_override_wins(self) -> None:
+        assert resolve_daily_tickers("AAPL,MSFT", override=["SPY"]) == ["SPY"]
+
+    def test_config_parsed_and_uppercased(self) -> None:
+        assert resolve_daily_tickers(" aapl , msft ") == ["AAPL", "MSFT"]
+
+    def test_empty_config_falls_back_to_default(self) -> None:
+        assert resolve_daily_tickers("") == DEFAULT_DAILY_TICKERS
+        assert resolve_daily_tickers(None) == DEFAULT_DAILY_TICKERS
+
+
+class TestSummarizeRun:
+    def test_ran_and_skipped_and_empty(self) -> None:
+        ran = MarketRunResult(
+            "US", SIM_US_ACCOUNT_ID, False, 2, 0,
+            Money(Decimal("3000"), Currency.USD),
+        )
+        skipped = MarketRunResult("US", SIM_US_ACCOUNT_ID, True, 0, 0, None)
+        assert "新增 2 訊號" in summarize_run([ran])
+        assert "已跑過" in summarize_run([skipped])
+        assert summarize_run([]) == "沒有可跑的標的"
 
 
 class TestDailyRoutinePersistsSignals:

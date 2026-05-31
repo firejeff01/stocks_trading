@@ -144,7 +144,48 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
             price_history_fn=_price_history,
         )
 
-    dashboard = DashboardPage(on_refresh=refresh)
+    def run_today() -> str:
+        """主控台「立即重跑今日」：skip-if-done 跑 daily-routine．
+
+        手動補跑只更新 SIM 資料 (不寄信，寄信交給排程/登入補跑任務)．
+        在背景 thread 執行 (DashboardPage 用 AsyncFetcher)．
+        """
+        from stocks_trading.cli.daily_routine import (
+            resolve_daily_tickers,
+            run_markets,
+            summarize_run,
+        )
+        from stocks_trading.cli.main import _build_risk_guard
+        from stocks_trading.cli.strategy_factory import build_strategy
+        from stocks_trading.paper_trading.fee_calculator import FeeConfig
+        from stocks_trading.paper_trading.service import PaperTradingService
+
+        signal_repo = SignalRepository(db_path=db_path)
+        paper_service = PaperTradingService(
+            signal_repo=signal_repo,
+            positions_repo=positions_repo,
+            daily_pnl_repo=daily_pnl_repo,
+            account_repo=account_repo,
+            fee_config=FeeConfig(),
+            max_positions=4,
+            risk_guard=_build_risk_guard(config),
+        )
+        results = run_markets(
+            tickers=resolve_daily_tickers(config.get_plain("daily.tickers")),
+            router=router,
+            signal_repo=signal_repo,
+            paper_trading_service=paper_service,
+            daily_pnl_repo=daily_pnl_repo,
+            make_strategy=lambda: build_strategy(
+                "dual-momentum", lookback_days=252, top_n=2
+            ),
+            notification_service=None,
+            today=date.today(),
+            skip_if_done=True,
+        )
+        return summarize_run(results)
+
+    dashboard = DashboardPage(on_refresh=refresh, on_run_today=run_today)
     refresh()
 
     # 4b. 新聞候選 watchlist 接線 (晉升對話框 + 黑名單回報)

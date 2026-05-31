@@ -58,8 +58,13 @@ def _build_parser() -> argparse.ArgumentParser:
     daily.add_argument(
         "--tickers",
         type=lambda s: [t.strip().upper() for t in s.split(",") if t.strip()],
-        default=["SPY", "QQQ", "IWM"],
-        help="逗號分隔的標的清單 (預設：SPY,QQQ,IWM)",
+        default=None,
+        help="逗號分隔的標的清單 (未給則讀 config daily.tickers，再無則用預設科技股)",
+    )
+    daily.add_argument(
+        "--skip-if-done",
+        action="store_true",
+        help="若該帳本今天已有快照就略過 (登入補跑用，避免重複產生訊號)",
     )
     daily.add_argument(
         "--lookback",
@@ -186,10 +191,12 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     """讀 config / 建依賴 / 對台股+美股各跑一輪 daily_routine．返回 exit code．"""
     # 延遲 import 避免 --help / --version 路徑也要載入這些重模組
     from stocks_trading.app import _build_market_data_router, _default_appdata_dir
-    from stocks_trading.cli.daily_routine import daily_routine
+    from stocks_trading.cli.daily_routine import (
+        resolve_daily_tickers,
+        run_markets,
+    )
     from stocks_trading.cli.strategy_factory import build_strategy
     from stocks_trading.config.store import ConfigStore
-    from stocks_trading.domain.mode import Mode
     from stocks_trading.notify.notification_service import NotificationService
     from stocks_trading.paper_trading.fee_calculator import FeeConfig
     from stocks_trading.paper_trading.service import PaperTradingService
@@ -199,10 +206,6 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
     from stocks_trading.storage.daily_pnl_repository import DailyPnlRepository
     from stocks_trading.storage.migration import MigrationRunner
     from stocks_trading.storage.positions_repository import PositionsRepository
-    from stocks_trading.storage.seed_accounts import (
-        SIM_TW_ACCOUNT_ID,
-        SIM_US_ACCOUNT_ID,
-    )
     from stocks_trading.storage.signal_repository import SignalRepository
 
     appdata = _default_appdata_dir()
@@ -239,41 +242,37 @@ def _run_daily_routine(args: argparse.Namespace) -> int:
         else NotificationService.from_config(config=config)
     )
 
-    # 依市場分流：4 碼純數字 → TW，其餘 → US
-    tickers: list[str] = args.tickers
-    tw_tickers = [t for t in tickers if t.isdigit() and len(t) == 4]
-    us_tickers = [t for t in tickers if not (t.isdigit() and len(t) == 4)]
+    # 標的來源：--tickers > config daily.tickers > 預設科技股
+    tickers = resolve_daily_tickers(
+        config.get_plain("daily.tickers"), override=args.tickers
+    )
+
+    results = run_markets(
+        tickers=tickers,
+        router=router,
+        signal_repo=signal_repo,
+        paper_trading_service=paper_service,
+        daily_pnl_repo=daily_pnl_repo,
+        make_strategy=lambda: build_strategy(
+            args.strategy, lookback_days=args.lookback, top_n=args.top_n
+        ),
+        notification_service=notify,
+        today=date.today(),
+        skip_if_done=args.skip_if_done,
+    )
 
     total_new = 0
     total_settled = 0
-    today = date.today()
-    for market_label, t_list, acct in (
-        ("TW", tw_tickers, SIM_TW_ACCOUNT_ID),
-        ("US", us_tickers, SIM_US_ACCOUNT_ID),
-    ):
-        if not t_list:
+    for r in results:
+        if r.skipped:
+            print(f"[{r.market}] 今天已跑過，略過 (--skip-if-done)")
             continue
-        strategy = build_strategy(
-            args.strategy, lookback_days=args.lookback, top_n=args.top_n
-        )
-        result = daily_routine(
-            tickers=t_list,
-            router=router,
-            signal_repo=signal_repo,
-            paper_trading_service=paper_service,
-            strategy=strategy,
-            account_id=acct,
-            notification_service=notify,
-            mode=Mode.SIM,
-            summary_date=today,
-        )
         print(
-            f"[{market_label}] new={result.new_signals} "
-            f"settled={result.settled_signals} "
-            f"equity={result.equity_snapshot.equity}"
+            f"[{r.market}] new={r.new_signals} "
+            f"settled={r.settled_signals} equity={r.equity}"
         )
-        total_new += result.new_signals
-        total_settled += result.settled_signals
+        total_new += r.new_signals
+        total_settled += r.settled_signals
     print(f"daily-routine 完成：新增 {total_new} signals、結算 {total_settled}")
     return 0
 

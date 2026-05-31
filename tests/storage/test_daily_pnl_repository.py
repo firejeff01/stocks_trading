@@ -107,6 +107,27 @@ class TestDateRange:
         assert [s.snapshot_date.day for s in snaps] == [3, 4, 5, 6, 7]
 
 
+class TestFindForDate:
+    """find_for_date — 判斷某帳本某天是否已有快照 (skip-if-done 用)．"""
+
+    def test_returns_snapshot_when_exists(
+        self, repo: DailyPnlRepository
+    ) -> None:
+        repo.upsert(_snap(5, equity="1234"))
+        snap = repo.find_for_date(SIM_US_ACCOUNT_ID, date(2026, 1, 5))
+        assert snap is not None
+        assert snap.equity.amount == Decimal("1234")
+
+    def test_returns_none_when_absent(self, repo: DailyPnlRepository) -> None:
+        repo.upsert(_snap(5))
+        assert repo.find_for_date(SIM_US_ACCOUNT_ID, date(2026, 1, 6)) is None
+
+    def test_account_isolated(self, repo: DailyPnlRepository) -> None:
+        repo.upsert(_snap(5, account_id=SIM_US_ACCOUNT_ID))
+        # 同一天但別的帳本沒有 → None
+        assert repo.find_for_date(SIM_TW_ACCOUNT_ID, date(2026, 1, 5)) is None
+
+
 class TestAccountIsolation:
     def test_us_and_tw_isolated(self, repo: DailyPnlRepository) -> None:
         repo.upsert(_snap(1, account_id=SIM_US_ACCOUNT_ID))

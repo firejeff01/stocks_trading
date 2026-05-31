@@ -85,6 +85,18 @@ class DailyPnlRepository:
             ).fetchall()
         return [self._row_to_snap(r) for r in rows]
 
+    def find_for_date(
+        self, account_id: UUID, day: date
+    ) -> DailyPnlSnapshot | None:
+        """回某帳本某天的快照，沒有則 None (skip-if-done 判斷今天是否已跑)．"""
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                self._select_columns()
+                + " WHERE account_id = ? AND date = ?",
+                (str(account_id), day.isoformat()),
+            ).fetchone()
+        return self._row_to_snap(row) if row is not None else None
+
     def find_by_date_range(
         self,
         account_id: UUID,

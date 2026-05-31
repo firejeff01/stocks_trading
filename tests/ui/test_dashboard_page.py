@@ -7,6 +7,7 @@ KPI 卡片 + 持倉表 + 最近訊號表．
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from stocks_trading.domain.currency import Currency
@@ -180,6 +181,56 @@ class TestRefreshButton:
         assert page._refresh_button.isEnabled() is True
         page._refresh_button.click()
         assert calls == [1]
+
+
+class TestRunTodayButton:
+    """立即重跑今日 — 注入式 callback，背景執行 + toast．"""
+
+    def _toasts(self, page: DashboardPage) -> list[QLabel]:
+        return [
+            w for w in page.findChildren(QLabel) if w.property("toast_widget")
+        ]
+
+    def test_disabled_without_callback(self, qtbot: QtBot) -> None:
+        page = DashboardPage()
+        qtbot.addWidget(page)
+        assert page._run_today_button.isEnabled() is False
+
+    def test_enabled_with_callback(self, qtbot: QtBot) -> None:
+        page = DashboardPage(on_run_today=lambda: "US 新增 0 訊號")
+        qtbot.addWidget(page)
+        assert page._run_today_button.isEnabled() is True
+
+    def test_click_runs_and_shows_success_toast(self, qtbot: QtBot) -> None:
+        calls: list[int] = []
+
+        def run() -> str:
+            calls.append(1)
+            return "US 新增 0 訊號"
+
+        page = DashboardPage(on_run_today=run)
+        qtbot.addWidget(page)
+        with qtbot.waitSignal(page.run_today_finished, timeout=5000):
+            page._run_today_button.click()
+        assert calls == [1]
+        assert any(
+            t.property("toast_kind") == "success" for t in self._toasts(page)
+        )
+        # 跑完按鈕恢復可用
+        assert page._run_today_button.isEnabled() is True
+
+    def test_failure_shows_error_toast(self, qtbot: QtBot) -> None:
+        def boom() -> str:
+            raise RuntimeError("網路炸了")
+
+        page = DashboardPage(on_run_today=boom)
+        qtbot.addWidget(page)
+        with qtbot.waitSignal(page.run_today_finished, timeout=5000):
+            page._run_today_button.click()
+        assert any(
+            t.property("toast_kind") == "error" for t in self._toasts(page)
+        )
+        assert page._run_today_button.isEnabled() is True
 
 
 class TestEquityCurve:

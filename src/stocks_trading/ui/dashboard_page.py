@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime
 
 import pyqtgraph as pg  # type: ignore[import-untyped]
 from PySide6.QtCore import Qt
+from PySide6.QtCore import Signal as QtSignal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -26,9 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stocks_trading.concurrency.async_fetcher import AsyncFetcher
 from stocks_trading.domain.money import Money
 from stocks_trading.domain.signal import Signal
 from stocks_trading.ui.widgets.sparkline import Sparkline
+from stocks_trading.ui.widgets.toast import show_toast
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,8 +111,14 @@ class _EquityCurveWidget(QWidget):
 
 
 class DashboardPage(QWidget):
+    # 「立即重跑今日」背景執行完成 (成功或失敗都 emit)；測試可 waitSignal
+    run_today_finished = QtSignal()
+
     def __init__(
-        self, *, on_refresh: Callable[[], None] | None = None
+        self,
+        *,
+        on_refresh: Callable[[], None] | None = None,
+        on_run_today: Callable[[], str] | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("surface")
@@ -119,6 +128,13 @@ class DashboardPage(QWidget):
         self._refresh_button.setObjectName("ghost")
         self._refresh_button.setEnabled(on_refresh is not None)
         self._refresh_button.clicked.connect(self._on_refresh_clicked)
+
+        # 立即重跑今日 — 跑 daily-routine (skip-if-done)，背景執行不卡 UI
+        self._on_run_today = on_run_today
+        self._run_today_button = QPushButton("立即重跑今日")
+        self._run_today_button.setEnabled(on_run_today is not None)
+        self._run_today_button.clicked.connect(self._on_run_today_clicked)
+        self._active_run_fetcher: AsyncFetcher[str] | None = None
         # SIM 帳本各 2 個 KPI
         self._kpi_sim_tw_equity = _KpiCard("SIM-TW 帳戶總值")
         self._kpi_sim_tw_today = _KpiCard("SIM-TW 今日損益")
@@ -276,15 +292,52 @@ class DashboardPage(QWidget):
         if self._on_refresh is not None:
             self._on_refresh()
 
+    # ---- 立即重跑今日 ----
+    def _on_run_today_clicked(self) -> None:
+        if self._on_run_today is None:
+            return
+        self._run_today_button.setEnabled(False)
+        # parent=self：讓 Qt 物件樹持有 QThread，避免在 run() 還在執行時 Python
+        # GC 把唯一參考回收 → "QThread: Destroyed while thread is still running"．
+        worker: AsyncFetcher[str] = AsyncFetcher(self._on_run_today, self)
+        self._active_run_fetcher = worker
+        worker.finished_with_result.connect(self._on_run_today_done)
+        worker.failed.connect(self._on_run_today_failed)
+        # 內建 finished 在 run() 真正結束後才 emit → 此時清參考 + 釋放才安全
+        worker.finished.connect(self._on_run_worker_finished)
+        worker.start()
+
+    def _on_run_today_done(self, message: str) -> None:
+        show_toast(self, f"✓ {message}", kind="success")
+        self._run_today_button.setEnabled(self._on_run_today is not None)
+        self.run_today_finished.emit()
+        # 跑完自動刷新畫面 (若有注入 refresh)
+        if self._on_refresh is not None:
+            self._on_refresh()
+
+    def _on_run_today_failed(self, exc: BaseException) -> None:
+        show_toast(self, f"✗ 重跑失敗：{exc}", kind="error")
+        self._run_today_button.setEnabled(self._on_run_today is not None)
+        self.run_today_finished.emit()
+
+    def _on_run_worker_finished(self) -> None:
+        """QThread 內建 finished：run() 已返回，可安全清參考 + deleteLater．"""
+        worker = self.sender()
+        if worker is self._active_run_fetcher:
+            self._active_run_fetcher = None
+        if isinstance(worker, AsyncFetcher):
+            worker.deleteLater()
+
     # ---- UI build ----
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(12)
 
-        # 第零列：標題 + 重新整理按鈕
+        # 第零列：標題 + 立即重跑 + 重新整理按鈕
         header_row = QHBoxLayout()
         header_row.addStretch(1)
+        header_row.addWidget(self._run_today_button)
         header_row.addWidget(self._refresh_button)
         outer.addLayout(header_row)
 

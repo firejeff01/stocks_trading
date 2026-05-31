@@ -92,6 +92,32 @@ class TestNewsSettings:
         assert config.get_plain("news.ticker_confidence_pct") == 55.0
 
 
+class TestDailyTickersSettings:
+    def test_default_shows_seven_tech_names(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        # 空 config → 顯示有效預設那 7 檔
+        assert "AAPL" in page.daily_tickers_value()
+        assert "TSLA" in page.daily_tickers_value()
+
+    def test_loaded_from_config(
+        self, qtbot: QtBot, config: ConfigStore
+    ) -> None:
+        config.set_plain("daily.tickers", "SPY,QQQ")
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        assert page.daily_tickers_value() == "SPY,QQQ"
+
+    def test_save_persists(self, qtbot: QtBot, config: ConfigStore) -> None:
+        page = SettingsPage(config=config)
+        qtbot.addWidget(page)
+        page.set_daily_tickers("NVDA,0050")
+        page.save()
+        assert config.get_plain("daily.tickers") == "NVDA,0050"
+
+
 class TestSpinboxNoWheelSteal:
     """滾輪滑過未聚焦的 spinbox 不該改值 (讓滾動交給整頁捲軸)．"""
 

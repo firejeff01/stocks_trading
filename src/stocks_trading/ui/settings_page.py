@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stocks_trading.cli.daily_routine import resolve_daily_tickers
 from stocks_trading.config.store import ConfigStore
 from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.money import Money
@@ -115,6 +116,10 @@ class SettingsPage(QWidget):
         self._news_ticker_conf.setRange(0.0, 100.0)
         self._news_ticker_conf.setSingleStep(5.0)
 
+        # 每日例行標的 (daily-routine / 排程 / GUI「立即重跑」共用)
+        self._daily_tickers = QLineEdit()
+        self._daily_tickers.setPlaceholderText("AAPL,MSFT,NVDA,...")
+
         # Shioaji 區塊 (兩個欄位都走 secret 命名空間)
         self._shioaji_api_key = QLineEdit()
         self._shioaji_api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -160,6 +165,12 @@ class SettingsPage(QWidget):
 
     def circuit_breaker_pct_value(self) -> float:
         return self._circuit_breaker_pct.value()
+
+    def daily_tickers_value(self) -> str:
+        return self._daily_tickers.text()
+
+    def set_daily_tickers(self, v: str) -> None:
+        self._daily_tickers.setText(v)
 
     def news_max_calls_value(self) -> int:
         return self._news_max_calls.value()
@@ -337,6 +348,8 @@ class SettingsPage(QWidget):
             "news.ticker_confidence_pct", self._news_ticker_conf.value()
         )
 
+        self._config.set_plain("daily.tickers", self._daily_tickers.text())
+
         # Shioaji api_key + secret_key 都走 secret 命名空間
         sj_api = self._shioaji_api_key.text()
         sj_secret = self._shioaji_secret_key.text()
@@ -367,6 +380,7 @@ class SettingsPage(QWidget):
         inner.addWidget(self._build_shioaji_group())
         inner.addWidget(self._build_risk_group())
         inner.addWidget(self._build_news_group())
+        inner.addWidget(self._build_daily_group())
         inner.addWidget(self._build_sim_accounts_group())
 
         actions = QHBoxLayout()
@@ -420,6 +434,19 @@ class SettingsPage(QWidget):
         hint = QLabel(
             "每日分析上限＝CostGuard 每天最多跑幾篇 claude -p (每篇約消耗 Max 額度 "
             "$0.06~0.08)；信心門檻＝低於此信心的個股對應視為幻覺丟棄 (預設 60%)．"
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        form.addRow("", hint)
+        return group
+
+    def _build_daily_group(self) -> QGroupBox:
+        group = QGroupBox("每日例行 (daily-routine)")
+        form = QFormLayout(group)
+        form.addRow(QLabel("每日標的"), self._daily_tickers)
+        hint = QLabel(
+            "逗號分隔的標的清單；排程、CLI 與主控台「立即重跑今日」都讀這裡．"
+            "4 碼純數字視為台股、其餘視為美股．"
         )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
@@ -501,6 +528,13 @@ class SettingsPage(QWidget):
         self._news_ticker_conf.setValue(
             float(
                 self._config.get_plain("news.ticker_confidence_pct", 60.0) or 60.0
+            )
+        )
+
+        # 空值時顯示有效預設 (那 7 檔)，讓使用者看得到實際會跑什麼
+        self._daily_tickers.setText(
+            ",".join(
+                resolve_daily_tickers(self._config.get_plain("daily.tickers"))
             )
         )
 
