@@ -27,6 +27,7 @@ from stocks_trading.domain.bar import Bar
 from stocks_trading.domain.currency import Currency
 from stocks_trading.domain.mode import Mode
 from stocks_trading.domain.money import Money
+from stocks_trading.domain.signal_status import SignalStatus
 from stocks_trading.domain.symbol import Symbol
 from stocks_trading.security.dpapi import DpapiCipher
 from stocks_trading.storage import MIGRATIONS_DIR
@@ -186,6 +187,11 @@ def build_main_window(*, appdata_dir: Path | None = None) -> MainWindow:
             signal_loader=lambda: SignalRepository(
                 db_path=db_path
             ).find_recent(limit=100),
+            on_mark_filled=lambda sig: SignalRepository(
+                db_path=db_path
+            ).update_status(
+                sig.signal_id, SignalStatus.FILLED, reason="已手動下單"
+            ),
         ),
         PageId.WATCHLIST: WatchlistPage(
             watchlist_loader=_load_watchlist,

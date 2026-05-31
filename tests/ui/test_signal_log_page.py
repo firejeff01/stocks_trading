@@ -109,3 +109,46 @@ class TestSignalLogPageDataLoader:
         page = SignalLogPage()
         qtbot.addWidget(page)
         assert page._refresh_button.isEnabled() is False
+
+
+class TestSignalLogPageMarkFilled:
+    """把 MANUAL_PENDING 訊號標記為已手動下單 (→ FILLED)．"""
+
+    def test_mark_manual_pending_filled(self, qtbot: QtBot) -> None:
+        marked: list[str] = []
+        page = SignalLogPage(
+            signal_loader=lambda: [_sig(SignalStatus.MANUAL_PENDING)],
+            on_mark_filled=lambda sig: marked.append(sig.symbol.code),
+        )
+        qtbot.addWidget(page)
+        page.select_row(0)
+        page.mark_selected_filled()
+        assert marked == ["SPY"]
+
+    def test_non_manual_pending_not_marked(self, qtbot: QtBot) -> None:
+        marked: list[Signal] = []
+        page = SignalLogPage(
+            signal_loader=lambda: [_sig(SignalStatus.FILLED)],
+            on_mark_filled=lambda sig: marked.append(sig),
+        )
+        qtbot.addWidget(page)
+        page.select_row(0)
+        page.mark_selected_filled()
+        assert marked == []  # 已 FILLED 不可再標
+
+    def test_no_selection_no_mark(self, qtbot: QtBot) -> None:
+        marked: list[Signal] = []
+        page = SignalLogPage(
+            signal_loader=lambda: [_sig(SignalStatus.MANUAL_PENDING)],
+            on_mark_filled=lambda sig: marked.append(sig),
+        )
+        qtbot.addWidget(page)
+        page.mark_selected_filled()  # 沒選任何列
+        assert marked == []
+
+    def test_mark_button_disabled_without_callback(self, qtbot: QtBot) -> None:
+        page = SignalLogPage(
+            signal_loader=lambda: [_sig(SignalStatus.MANUAL_PENDING)]
+        )
+        qtbot.addWidget(page)
+        assert page._mark_filled_button.isEnabled() is False
