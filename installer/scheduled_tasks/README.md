@@ -1,15 +1,19 @@
 # Windows Task Scheduler 範本
 
-每日定時跑 `stocks-trading-cli daily-routine`：抓資料 → 產訊號 → 寫入 SIM 帳本
-→ 寄出每日摘要 Email。台股 / 美股各一個範本（不同觸發時間）。
+定時跑 `stocks-trading-cli`：每日交易例行 (`daily-routine`) 與新聞情緒分析 (`news`)。
 
 | 檔案 | 觸發 | 動作 |
 | --- | --- | --- |
-| `tw_market_close.xml` | 週一~五 14:00 (台北) | 跑台股策略 (`--tickers 0050`) + 寄摘要 |
-| `us_market_close.xml` | 週二~六 05:30 (台北) | 跑美股策略 (`--tickers SPY,QQQ,IWM`) + 寄摘要 |
+| `tw_market_close.xml` | 週一~五 14:00 (台北) | 跑台股策略 (`daily-routine --tickers 0050`) + 寄摘要 |
+| `us_market_close.xml` | 週二~六 05:30 (台北) | 跑美股策略 (`daily-routine --tickers SPY,QQQ,IWM`) + 寄摘要 |
+| `news_daily.xml` | 每天 06:30 (台北) | 跑新聞情緒分析 (`news --tickers ...`) + 寄 digest |
 
 > `daily-routine` 會依 ticker 形狀自動分流（4 碼純數字→台股、其餘→美股），
 > 所以台股範本放台股代號、美股範本放美股代號即可。
+>
+> `news` 會抓這些個股的 yfinance 新聞 + CNBC RSS，用 `claude -p` (你的 Max
+> 訂閱) 分析；**會消耗 Max 額度**（每篇約 $0.06），預設帶 `--dry-run`
+> 先觀察，且受設定頁「每日分析上限」把關。
 
 ## 1. 先手動確認 CLI 可跑
 
@@ -40,6 +44,7 @@ StocksTrading-cli daily-routine --tickers SPY,QQQ --dry-run
 ```cmd
 schtasks /create /tn "StocksTrading-TW" /xml installer\scheduled_tasks\tw_market_close.xml /f
 schtasks /create /tn "StocksTrading-US" /xml installer\scheduled_tasks\us_market_close.xml /f
+schtasks /create /tn "StocksTrading-News" /xml installer\scheduled_tasks\news_daily.xml /f
 ```
 
 匯入後可右鍵「執行」手動觸發一次驗證。
