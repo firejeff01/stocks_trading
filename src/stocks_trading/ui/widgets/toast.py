@@ -28,9 +28,11 @@ def show_toast(
     """在 parent 所屬視窗上方中央顯示一則 toast，duration_ms 後自動移除．回傳該 toast．"""
     host = parent.window()
 
-    # 移除尚在的舊 toast，避免堆疊
+    # 移除尚在的舊 toast，避免堆疊．hide() 是同步的 → 立刻從畫面消失，
+    # 不必等 deleteLater 的事件迴圈，避免舊的比新的寬時露出半截殘影．
     for old in host.findChildren(QLabel):
         if old.property(_TOAST_FLAG):
+            old.hide()
             old.deleteLater()
 
     bg, fg = _COLORS.get(kind, _COLORS["info"])
